@@ -1,3 +1,5 @@
+pub mod verdict;
+
 use shared::protocol::ProtocolError;
 use tokio::io;
 
