@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 pub enum CompileResult {
     Success,
+    Timeout,
     CompilationError { message: String },
 }
 
@@ -58,6 +59,10 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
         CompileResult::CompilationError { message } => {
             let _ = judge.cleanup().await;
             return VerdictTaskResult::CompilationError { message };
+        }
+        CompileResult::Timeout => {
+            let _ = judge.cleanup().await;
+            return VerdictTaskResult::CompilationError { message: "Timeout".into() };
         }
         CompileResult::Success => {}
     }
