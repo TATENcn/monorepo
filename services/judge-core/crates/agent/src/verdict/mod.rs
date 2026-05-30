@@ -28,9 +28,9 @@ pub enum VerdictError {
 }
 
 pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> VerdictTaskResult {
-    let workdir = Path::new("/tmp");
+    let workdir = Path::new("/work").join(id.to_string());
 
-    let judge = match T::prepare(workdir, id).await {
+    let judge = match T::prepare(&workdir, id).await {
         Ok(judge) => judge,
         Err(e) => {
             return VerdictTaskResult::Internal { message: e.to_string() };
