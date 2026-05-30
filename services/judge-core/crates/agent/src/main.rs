@@ -1,4 +1,4 @@
-use agent::AgentError;
+use agent::{AgentError, verdict::handle};
 use shared::{
     models::VerdictTask,
     protocol::{FrameId, receive, send},
@@ -17,9 +17,11 @@ async fn main() -> Result<(), AgentError> {
 
         let (id, task): (FrameId, VerdictTask) = receive(&mut stream).await?;
 
-        todo!("complete agent functionality");
+        let res = match task.language {
+            shared::models::Language::Cpp => handle::<agent::verdict::cpp::Cpp>(id, task).await,
+        };
 
-        send(&mut stream, id, todo!("task result")).await?;
+        send(&mut stream, id, res).await?;
     }
 
     Ok(())

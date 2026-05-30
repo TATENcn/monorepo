@@ -1,3 +1,5 @@
+pub mod cpp;
+
 use std::path::Path;
 use std::sync::Arc;
 
@@ -13,9 +15,16 @@ pub enum CompileResult {
 }
 
 pub trait Verdict: Sized + Send + Sync {
+    /// Create workdir, setting up environments
     fn prepare(workdir: &Path, id: u64) -> impl std::future::Future<Output = Result<Self, VerdictError>> + Send;
+
+    /// Compile source code to executable
     fn compile(&self, source: &str) -> impl std::future::Future<Output = Result<CompileResult, VerdictError>> + Send;
+
+    /// Verdict test case
     fn verdict(&self, case: Case, limit: &ResourcesLimit) -> impl std::future::Future<Output = Result<VerdictTaskResult, VerdictError>> + Send;
+
+    /// Cleanup workdir and environments
     fn cleanup(&self) -> impl std::future::Future<Output = Result<(), VerdictError>> + Send;
 }
 
