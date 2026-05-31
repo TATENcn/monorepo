@@ -36,6 +36,22 @@ impl CgroupGuard {
         self.cgroup.add_task(pid.into())
     }
 
+    /// Add an arbitrary task to this cgroup
+    pub fn add_task(&mut self, pid: u64) -> Result<(), CgroupError> {
+        if self.start_time.is_none() {
+            self.start_time = Some(Instant::now());
+        }
+        self.cgroup.add_task(pid.into())
+    }
+
+    /// Check whether the OOM killer has killed any task in this cgroup
+    pub fn was_oom_killed(&self) -> bool {
+        let controller: &MemController = self.cgroup.controller_of().unwrap();
+        let oom_kill = controller.memory_stat().oom_control.oom_kill;
+
+        return oom_kill > 0;
+    }
+
     pub fn usage(&self) -> ResourcesUsage {
         let memory_controller: &MemController = self.cgroup.controller_of().unwrap();
         let memory_bytes = memory_controller.memory_stat().max_usage_in_bytes;
