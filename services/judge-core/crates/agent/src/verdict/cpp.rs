@@ -165,14 +165,6 @@ impl Verdict for Cpp {
                 if status.success() {
                     let usage = cg.usage();
 
-                    if cg.was_oom_killed() {
-                        return Ok(VerdictTaskResult::Killed {
-                            reason: KilledReason::MemoryLimitExceeded,
-                            stdout,
-                            stderr,
-                        });
-                    }
-
                     if usage.cpu_time_ms > limit.cpu_time_ms {
                         return Ok(VerdictTaskResult::Killed {
                             reason: KilledReason::CpuTimeLimitExceeded,
