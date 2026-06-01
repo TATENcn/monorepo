@@ -10,7 +10,7 @@ use tokio::{
     fs,
     io::{AsyncReadExt, AsyncWriteExt},
     process,
-    sync::mpsc,
+    sync::Notify,
     time::timeout,
 };
 
@@ -96,29 +96,30 @@ impl Verdict for Cpp {
         }
 
         let output_limit = limit.output_bytes as usize;
-        let (output_exceeded_tx, mut output_exceeded_rx) = mpsc::channel::<()>(1);
+        let output_exceeded = std::sync::Arc::new(Notify::new());
 
         let stdout_reader = {
             let stdout = child.stdout.take().unwrap();
-            let tx = output_exceeded_tx.clone();
+            let output_exceeded = output_exceeded.clone();
             let mut capped = stdout.take((output_limit + 1) as u64);
             tokio::spawn(async move {
                 let mut buf = String::new();
                 capped.read_to_string(&mut buf).await?;
                 if buf.len() > output_limit {
-                    let _ = tx.try_send(());
+                    output_exceeded.notify_one();
                 }
                 io::Result::Ok(buf)
             })
         };
         let stderr_reader = {
             let stderr = child.stderr.take().unwrap();
+            let output_exceeded = output_exceeded.clone();
             let mut capped = stderr.take((output_limit + 1) as u64);
             tokio::spawn(async move {
                 let mut buf = String::new();
                 capped.read_to_string(&mut buf).await?;
                 if buf.len() > output_limit {
-                    let _ = output_exceeded_tx.try_send(());
+                    output_exceeded.notify_one();
                 }
                 io::Result::Ok(buf)
             })
@@ -134,7 +135,7 @@ impl Verdict for Cpp {
             result = child.wait() => {
                 ChildOutcome::Exited(result?)
             }
-            _ = output_exceeded_rx.recv() => {
+            _ = output_exceeded.notified() => {
                 child.kill().await?;
                 let _ = child.wait().await;
                 ChildOutcome::OutputExceeded
