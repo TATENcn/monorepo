@@ -1,0 +1,7 @@
+[package]
+name = "manager"
+edition.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
