@@ -1,5 +1,5 @@
-# Turbo caches
-.turbo/
+# Nx caches
+.nx/
 
 # Output files
 target/

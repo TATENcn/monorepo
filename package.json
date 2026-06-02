@@ -1,7 +1,7 @@
 {
 	"name": "online-judge",
 	"devDependencies": {
-		"turbo": "^2.9.15"
+		"nx": "22.7.5"
 	},
 	"workspaces": [
 		"services/*"

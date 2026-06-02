@@ -1,9 +1,0 @@
-{
-	"name": "judge-core",
-	"private": true,
-	"scripts": {
-		"build": "cargo build --workspace",
-		"build:release": "cargo build --release --workspace",
-		"format": "cargo fmt"
-	}
-}
