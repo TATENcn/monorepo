@@ -3,5 +3,6 @@ name = "manager"
 edition.workspace = true
 
 [dependencies]
+containerd-client = "0.9.0"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
