@@ -81,7 +81,8 @@ impl Verdict for Cpp {
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(&self.work_dir);
+            .current_dir(&self.work_dir)
+            .kill_on_drop(true);
 
         let mut child = cmd.spawn()?;
 
