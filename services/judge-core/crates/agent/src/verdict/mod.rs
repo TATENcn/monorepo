@@ -2,6 +2,7 @@ pub mod cpp;
 
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
@@ -23,7 +24,7 @@ pub trait Verdict: Sized + Send + Sync {
     fn compile(&self, source: &str) -> impl std::future::Future<Output = Result<CompileResult, VerdictError>> + Send;
 
     /// Verdict test case
-    fn verdict(&self, case: Case, limit: &ResourcesLimit) -> impl std::future::Future<Output = Result<VerdictTaskResult, VerdictError>> + Send;
+    fn verdict(&self, case: Case, limit: &ResourcesLimit, id: u64) -> impl std::future::Future<Output = Result<VerdictTaskResult, VerdictError>> + Send;
 
     /// Cleanup workdir and environments
     fn cleanup(&self) -> impl std::future::Future<Output = Result<(), VerdictError>> + Send;
@@ -73,16 +74,19 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
     let cancel = CancellationToken::new();
     let mut futures = FuturesUnordered::new();
 
+    static VERDICT_ID: AtomicU64 = AtomicU64::new(0);
+
     for case in task.cases {
         let j = Arc::clone(&judge);
         let c = cancel.clone();
         let limits = task.limits.clone();
+        let id = VERDICT_ID.fetch_add(1, Ordering::Relaxed);
 
         futures.push(tokio::spawn(async move {
             tokio::select! {
                 biased;
                 _ = c.cancelled() => Err(VerdictError::Cancelled),
-                res = j.verdict(case, &limits) => res,
+                res = j.verdict(case, &limits, id) => res,
             }
         }));
     }

@@ -74,6 +74,7 @@ impl Verdict for Cpp {
         &self,
         case: shared::models::Case,
         limit: &shared::models::ResourcesLimit,
+        id: u64,
     ) -> Result<shared::models::VerdictTaskResult, super::VerdictError> {
         let exe_path = self.work_dir.join("executable");
 
@@ -86,8 +87,8 @@ impl Verdict for Cpp {
 
         let mut child = cmd.spawn()?;
 
-        // Build a unique cgroup id using agent pid + child pid
-        let cgroup_id = format!("verdict-{}-{}", std::process::id(), child.id().unwrap_or(0));
+        // Build a unique cgroup id using verdict id
+        let cgroup_id = format!("verdict-cpp-{}", id);
         let mut cg = CgroupGuard::new(&cgroup_id, limit)?;
         cg.add_task(child.id().unwrap_or(0) as u64)?;
 
