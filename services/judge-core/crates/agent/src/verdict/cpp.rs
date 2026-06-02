@@ -85,11 +85,11 @@ impl Verdict for Cpp {
             .current_dir(&self.work_dir)
             .kill_on_drop(true);
 
-        let mut child = cmd.spawn()?;
-
         // Build a unique cgroup id using verdict id
+        // FIXME: there's a race condition when the child is created and when it's added to the cgroup, but I don't know how to fix it gracefully
         let cgroup_id = format!("verdict-cpp-{}", id);
         let mut cg = CgroupGuard::new(&cgroup_id, limit)?;
+        let mut child = cmd.spawn()?;
         cg.add_task(child.id().unwrap_or(0) as u64)?;
 
         // Write stdin input
