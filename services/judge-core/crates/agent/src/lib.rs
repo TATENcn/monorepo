@@ -11,3 +11,7 @@ pub enum AgentError {
     #[error(transparent)]
     Protocol(#[from] ProtocolError),
 }
+
+pub(crate) fn truncate_str(s: &str, max: usize) -> &str {
+    if s.len() <= max { s } else { &s[..max] }
+}

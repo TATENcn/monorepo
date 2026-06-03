@@ -13,8 +13,10 @@ use tokio::{
     sync::Notify,
     time::timeout,
 };
+use tracing::{debug, info, instrument, trace};
 
 use crate::limit::cgroup::CgroupGuard;
+use crate::truncate_str;
 use crate::verdict::Verdict;
 use shared::models::{KilledReason, VerdictTaskResult};
 
@@ -31,9 +33,14 @@ impl Verdict for Cpp {
         })
     }
 
+    #[instrument(skip(self, source), fields(source_len = source.len()))]
     async fn compile(&self, source: &str) -> Result<super::CompileResult, super::VerdictError> {
         let source_path = self.work_dir.join("source.cpp");
+
+        debug!(source_len = source.len(), "writing source file");
         fs::write(&source_path, source).await?;
+
+        trace!(source = truncate_str(source, 1024), "source content");
 
         let mut cmd = process::Command::new("g++");
         cmd.arg("-std=c++23")
@@ -48,28 +55,33 @@ impl Verdict for Cpp {
 
         // TODO: Apply resource limits
 
+        debug!("spawning g++ process");
         let mut child = cmd.spawn()?;
         let result = timeout(Duration::from_secs(10), child.wait()).await;
         match result {
             Ok(status) => {
                 let status = status?;
                 if status.success() {
+                    debug!("compilation succeeded");
                     Ok(super::CompileResult::Success)
                 } else {
                     let mut message = String::new();
                     if let Some(mut stderr) = child.stderr.take() {
                         stderr.read_to_string(&mut message).await?;
                     }
+                    info!(message_len = message.len(), "compilation error");
                     Ok(super::CompileResult::CompilationError { message })
                 }
             }
             Err(_) => {
                 child.kill().await?;
+                info!("compilation timeout");
                 Ok(super::CompileResult::Timeout)
             }
         }
     }
 
+    #[instrument(skip(self, case, limit), fields(case_id = id, input_len = case.input.len(), output_limit = limit.output_bytes))]
     async fn verdict(
         &self,
         case: shared::models::Case,
@@ -89,13 +101,19 @@ impl Verdict for Cpp {
         // FIXME: there's a race condition when the child is created and when it's added to the cgroup, but I don't know how to fix it gracefully
         let cgroup_id = format!("verdict-cpp-{}", id);
         let mut cg = CgroupGuard::new(&cgroup_id, limit)?;
+        debug!(cgroup_id = %cgroup_id, "cgroup created");
+
         let mut child = cmd.spawn()?;
-        cg.add_task(child.id().unwrap_or(0) as u64)?;
+        let child_pid = child.id().unwrap_or(0);
+        debug!(child_pid, "child process spawned");
+
+        cg.add_task(child_pid as u64)?;
 
         // Write stdin input
         if let Some(mut stdin) = child.stdin.take() {
             stdin.write_all(case.input.as_bytes()).await?;
         }
+        trace!(input = truncate_str(&case.input, 1024), "stdin written");
 
         let output_limit = limit.output_bytes as usize;
         let output_exceeded = std::sync::Arc::new(Notify::new());
@@ -135,16 +153,20 @@ impl Verdict for Cpp {
 
         let outcome = tokio::select! {
             result = child.wait() => {
-                ChildOutcome::Exited(result?)
+                let status = result?;
+                debug!(status = ?status, "child exited normally");
+                ChildOutcome::Exited(status)
             }
             _ = output_exceeded.notified() => {
                 child.kill().await?;
                 let _ = child.wait().await;
+                info!("output limit exceeded, killed");
                 ChildOutcome::OutputExceeded
             }
             _ = tokio::time::sleep(Duration::from_millis(limit.wall_time_ms)) => {
                 child.kill().await?;
                 let _ = child.wait().await;
+                info!("wall time limit exceeded, killed");
                 ChildOutcome::WallTimeout
             }
         };
@@ -152,6 +174,8 @@ impl Verdict for Cpp {
         // Collect stdout and stderr
         let stdout = stdout_reader.await.map_err(io::Error::other)??;
         let stderr = stderr_reader.await.map_err(io::Error::other)??;
+        trace!(stdout_len = stdout.len(), stderr_len = stderr.len(), "collected output");
+        trace!(stdout = truncate_str(&stdout, 1024), stderr = truncate_str(&stderr, 1024), "output content");
 
         match outcome {
             ChildOutcome::OutputExceeded => Ok(VerdictTaskResult::Killed {
@@ -167,8 +191,10 @@ impl Verdict for Cpp {
             ChildOutcome::Exited(status) => {
                 if status.success() {
                     let usage = cg.usage();
+                    debug!(?usage, "resource usage collected");
 
                     if usage.cpu_time_ms > limit.cpu_time_ms {
+                        info!(?usage, cpu_limit = limit.cpu_time_ms, "cpu time limit exceeded");
                         return Ok(VerdictTaskResult::Killed {
                             reason: KilledReason::CpuTimeLimitExceeded,
                             stdout,
@@ -177,6 +203,7 @@ impl Verdict for Cpp {
                     }
 
                     if stdout.len() > output_limit || stderr.len() > output_limit {
+                        info!(stdout_len = stdout.len(), stderr_len = stderr.len(), output_limit, "output limit exceeded");
                         return Ok(VerdictTaskResult::Killed {
                             reason: KilledReason::OutputLimitExceeded,
                             stdout,
@@ -189,8 +216,10 @@ impl Verdict for Cpp {
                     let received = stdout.as_str();
 
                     if expected == received {
+                        info!(?usage, "accepted");
                         Ok(VerdictTaskResult::Accepted { usage })
                     } else {
+                        info!(expected_len = expected.len(), received_len = received.len(), "wrong answer");
                         Ok(VerdictTaskResult::WrongAnswer {
                             wrong_case: case,
                             received: stdout,
@@ -198,14 +227,16 @@ impl Verdict for Cpp {
                         })
                     }
                 } else if let Some(code) = status.code() {
+                    info!(exit_code = code, "runtime error");
                     Ok(VerdictTaskResult::RuntimeError { stderr, exit_code: code })
                 } else {
                     let reason = if cg.was_oom_killed() {
+                        info!("oom killed");
                         KilledReason::MemoryLimitExceeded
                     } else {
-                        KilledReason::Signaled {
-                            signal: status.signal().unwrap_or(0),
-                        }
+                        let signal = status.signal().unwrap_or(0);
+                        info!(signal, "signaled");
+                        KilledReason::Signaled { signal }
                     };
                     Ok(VerdictTaskResult::Killed { reason, stdout, stderr })
                 }
@@ -215,7 +246,7 @@ impl Verdict for Cpp {
 
     async fn cleanup(&self) -> Result<(), super::VerdictError> {
         fs::remove_dir_all(&self.work_dir).await?;
-
+        debug!(work_dir = %self.work_dir.display(), "cleaned up workdir");
         Ok(())
     }
 }

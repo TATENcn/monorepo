@@ -4,15 +4,16 @@ use cgroups_rs::fs::memory::MemController;
 use cgroups_rs::fs::{Cgroup, cgroup_builder::CgroupBuilder, hierarchies};
 use shared::models::{ResourcesLimit, ResourcesUsage};
 use tokio::time::Instant;
+use tracing::debug;
 
 pub struct CgroupGuard {
     cgroup: Cgroup,
-
     start_time: Option<Instant>,
 }
 
 impl Drop for CgroupGuard {
     fn drop(&mut self) {
+        debug!("cgroup deleted");
         let _ = self.cgroup.delete();
     }
 }
@@ -35,6 +36,14 @@ impl CgroupGuard {
             .done()
             .build(Box::new(hier))?;
 
+        debug!(
+            cgroup_id = %id,
+            cpu_quota_us,
+            cpu_period_us,
+            memory_limit = limit.memory_bytes,
+            "cgroup created"
+        );
+
         Ok(Self { cgroup, start_time: None })
     }
 
@@ -42,7 +51,9 @@ impl CgroupGuard {
         let pid = std::process::id() as u64;
 
         self.start_time = Some(Instant::now());
-        self.cgroup.add_task(pid.into())
+        self.cgroup.add_task(pid.into())?;
+        debug!(pid, "current process added to cgroup");
+        Ok(())
     }
 
     /// Add an arbitrary task to this cgroup
@@ -50,7 +61,9 @@ impl CgroupGuard {
         if self.start_time.is_none() {
             self.start_time = Some(Instant::now());
         }
-        self.cgroup.add_task(pid.into())
+        self.cgroup.add_task(pid.into())?;
+        debug!(pid, "task added to cgroup");
+        Ok(())
     }
 
     /// Check whether the OOM killer has killed any task in this cgroup

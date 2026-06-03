@@ -9,6 +9,7 @@ use futures::stream::FuturesUnordered;
 use shared::models::{Case, ResourcesLimit, ResourcesUsage, VerdictTask, VerdictTaskResult};
 use tokio::io;
 use tokio_util::sync::CancellationToken;
+use tracing::{debug, error, info, instrument, trace};
 
 pub enum CompileResult {
     Success,
@@ -40,19 +41,26 @@ pub enum VerdictError {
     Cgroup(#[from] cgroups_rs::fs::error::Error),
 }
 
+#[instrument(skip(task), fields(task_id = id))]
 pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> VerdictTaskResult {
     let workdir = Path::new("/work").join(id.to_string());
+
+    debug!(work_dir = %workdir.display(), "preparing workdir");
 
     let judge = match T::prepare(&workdir, id).await {
         Ok(judge) => judge,
         Err(e) => {
+            error!(error = %e, "prepare failed");
             return VerdictTaskResult::Internal { message: e.to_string() };
         }
     };
 
+    debug!(source_len = task.source.len(), "compiling");
+
     let compile_result = match judge.compile(&task.source).await {
         Ok(result) => result,
         Err(e) => {
+            error!(error = %e, "compile failed");
             let _ = judge.cleanup().await;
             return VerdictTaskResult::Internal { message: e.to_string() };
         }
@@ -60,14 +68,18 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
 
     match compile_result {
         CompileResult::CompilationError { message } => {
+            info!(message_len = message.len(), "compilation error");
             let _ = judge.cleanup().await;
             return VerdictTaskResult::CompilationError { message };
         }
         CompileResult::Timeout => {
+            info!("compilation timeout");
             let _ = judge.cleanup().await;
             return VerdictTaskResult::CompilationError { message: "Timeout".into() };
         }
-        CompileResult::Success => {}
+        CompileResult::Success => {
+            debug!("compilation succeeded");
+        }
     }
 
     let judge = Arc::new(judge);
@@ -76,17 +88,22 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
 
     static VERDICT_ID: AtomicU64 = AtomicU64::new(0);
 
-    for case in task.cases {
+    for (case_idx, case) in task.cases.into_iter().enumerate() {
         let j = Arc::clone(&judge);
         let c = cancel.clone();
         let limits = task.limits.clone();
-        let id = VERDICT_ID.fetch_add(1, Ordering::Relaxed);
+        let verdict_id = VERDICT_ID.fetch_add(1, Ordering::Relaxed);
+
+        info!(case_idx, input_len = case.input.len(), "running case");
 
         futures.push(tokio::spawn(async move {
             tokio::select! {
                 biased;
-                _ = c.cancelled() => Err(VerdictError::Cancelled),
-                res = j.verdict(case, &limits, id) => res,
+                _ = c.cancelled() => {
+                    trace!(case_idx, "case cancelled");
+                    Err(VerdictError::Cancelled)
+                }
+                res = j.verdict(case, &limits, verdict_id) => res,
             }
         }));
     }
@@ -101,6 +118,7 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
         let result = match result {
             Ok(r) => r,
             Err(e) => {
+                error!(error = %e, "verdict task panicked");
                 cancel.cancel();
                 drop(futures);
                 let _ = judge.cleanup().await;
@@ -112,12 +130,15 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
             Ok(v) => v,
             Err(VerdictError::Cancelled) => continue,
             Err(e) => {
+                error!(error = %e, "verdict error");
                 cancel.cancel();
                 drop(futures);
                 let _ = judge.cleanup().await;
                 return VerdictTaskResult::Internal { message: e.to_string() };
             }
         };
+
+        debug!(result = ?verdict, "case completed");
 
         match verdict {
             VerdictTaskResult::Accepted { usage } => {
@@ -134,7 +155,10 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
         }
     }
 
+    debug!("cleaning up");
     let _ = judge.cleanup().await;
 
-    VerdictTaskResult::Accepted { usage: max_usage }
+    let final_result = VerdictTaskResult::Accepted { usage: max_usage };
+    info!(result = ?final_result, "verdict completed");
+    final_result
 }
