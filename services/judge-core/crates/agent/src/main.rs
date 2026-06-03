@@ -3,14 +3,14 @@ use shared::{
     models::VerdictTask,
     protocol::{FrameId, receive, send},
 };
-use tokio::net::TcpListener;
+use tokio::net::UnixListener;
 use tracing::{debug, info};
 
 #[tokio::main]
 async fn main() -> Result<(), AgentError> {
     tracing_subscriber::fmt::init();
 
-    let listener = TcpListener::bind("127.0.0.1:3000").await?;
+    let listener = UnixListener::bind("/run/judge-core/agent.sock")?;
 
     loop {
         let (mut stream, _addr) = tokio::select! {
