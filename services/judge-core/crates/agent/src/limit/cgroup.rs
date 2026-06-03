@@ -58,7 +58,7 @@ impl CgroupGuard {
         let controller: &MemController = self.cgroup.controller_of().unwrap();
         let oom_kill = controller.memory_stat().oom_control.oom_kill;
 
-        return oom_kill > 0;
+        oom_kill > 0
     }
 
     pub fn usage(&self) -> ResourcesUsage {
@@ -79,7 +79,7 @@ impl CgroupGuard {
 
     /// Parse cpu stat and returns cpu time (contains user and system usage)
     fn parse_cpu_stat(stat: String) -> u64 {
-        for (_line_num, line) in stat.lines().enumerate() {
+        for line in stat.lines() {
             let line = line.trim();
             if line.is_empty() {
                 continue;
