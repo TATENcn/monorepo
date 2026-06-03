@@ -1,8 +1,5 @@
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use tokio::{
-    io::{self, AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-};
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 
 pub type FrameId = u64;
 
@@ -14,7 +11,7 @@ struct Frame<T> {
 }
 
 /// Receive data
-pub async fn receive<T: DeserializeOwned>(stream: &mut TcpStream) -> Result<(FrameId, T), ProtocolError> {
+pub async fn receive<T: DeserializeOwned, S: AsyncReadExt + Unpin>(stream: &mut S) -> Result<(FrameId, T), ProtocolError> {
     let len = stream.read_u32().await?;
 
     let mut buf = vec![0; len as usize];
@@ -25,7 +22,7 @@ pub async fn receive<T: DeserializeOwned>(stream: &mut TcpStream) -> Result<(Fra
 }
 
 /// Send data
-pub async fn send<T: Serialize>(stream: &mut TcpStream, id: FrameId, data: T) -> Result<(), ProtocolError> {
+pub async fn send<T: Serialize, S: AsyncWriteExt + Unpin>(stream: &mut S, id: FrameId, data: T) -> Result<(), ProtocolError> {
     let frame = Frame { id, inner: data };
     let data = postcard::to_allocvec(&frame)?;
     stream.write_u32(data.len().try_into().expect("Cannot transform frame")).await?;
