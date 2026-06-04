@@ -1,3 +1,5 @@
+use std::{sync::Arc, time::Duration};
+
 use containerd_client::{
     connect,
     services::v1::version_client,
@@ -5,13 +7,54 @@ use containerd_client::{
 };
 use tracing::info;
 
+use manager::{
+    pool::{AgentPool, PoolConfig, PoolError},
+    provisioner::{ContainerdProvisioner, ProvisionError},
+    scaler::ScalerConfig,
+};
+
 #[tokio::main]
 async fn main() -> Result<(), ManagerError> {
     tracing_subscriber::fmt::init();
 
     let connection = connect("/run/containerd/containerd.sock").await?;
 
-    info!(version = containerd_version(connection).await?, "containerd connected");
+    info!(version = containerd_version(connection.clone()).await?, "containerd connected");
+
+    let provisioner = ContainerdProvisioner::new(connection, "judge-core/agent:latest");
+
+    let pool = Arc::new(
+        AgentPool::new(
+            PoolConfig {
+                max_queue_size: 1000,
+                max_retries: 3,
+                task_timeout: Duration::from_secs(45),
+                health_check_interval: Duration::from_secs(5),
+                health_check_failure_threshold: 3,
+            },
+            provisioner,
+        )
+        .await,
+    );
+
+    pool.discover_agents().await?;
+    info!(metrics = ?pool.metrics().await, "agents discovered");
+
+    pool.start_autoscaler(ScalerConfig {
+        min_agents: 2,
+        max_agents: 10,
+        scale_up_threshold: 5,
+        scale_down_threshold: 3,
+        cooldown_secs: 60,
+        check_interval_secs: 10,
+    });
+
+    info!("manager ready");
+
+    // TODO: expose external API (e.g. gRPC/HTTP) to receive verdict tasks
+
+    tokio::signal::ctrl_c().await?;
+    info!("shutting down");
 
     Ok(())
 }
@@ -29,6 +72,12 @@ pub enum ManagerError {
     Connect(#[from] transport::Error),
     #[error("Rpc error: {0}")]
     Rpc(containerd_client::tonic::Code, String),
+    #[error(transparent)]
+    Pool(#[from] PoolError),
+    #[error(transparent)]
+    Provision(#[from] ProvisionError),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
 }
 
 impl From<containerd_client::tonic::Status> for ManagerError {
