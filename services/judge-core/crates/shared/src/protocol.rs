@@ -10,15 +10,31 @@ struct Frame<T> {
     inner: T,
 }
 
-/// Receive data
-pub async fn receive<T: DeserializeOwned, S: AsyncReadExt + Unpin>(stream: &mut S) -> Result<(FrameId, T), ProtocolError> {
+pub const HEARTBEAT_MAGIC: u32 = 0;
+
+pub async fn receive<T: DeserializeOwned, S: AsyncReadExt + AsyncWriteExt + Unpin>(stream: &mut S) -> Result<Option<(FrameId, T)>, ProtocolError> {
     let len = stream.read_u32().await?;
+
+    if len == HEARTBEAT_MAGIC {
+        stream.write_u32(HEARTBEAT_MAGIC).await?;
+        return Ok(None);
+    }
 
     let mut buf = vec![0; len as usize];
     stream.read_exact(&mut buf).await?;
 
     let data: Frame<T> = postcard::from_bytes(&buf)?;
-    Ok((data.id, data.inner))
+    Ok(Some((data.id, data.inner)))
+}
+
+/// Send a heartbeat and expect a heartbeat response
+pub async fn send_heartbeat<S: AsyncReadExt + AsyncWriteExt + Unpin>(stream: &mut S) -> Result<(), ProtocolError> {
+    stream.write_u32(HEARTBEAT_MAGIC).await?;
+    let resp = stream.read_u32().await?;
+    if resp != HEARTBEAT_MAGIC {
+        return Err(ProtocolError::InvalidHeartbeatResponse);
+    }
+    Ok(())
 }
 
 /// Send data
@@ -37,4 +53,6 @@ pub enum ProtocolError {
     Serialization(#[from] postcard::Error),
     #[error(transparent)]
     Io(#[from] io::Error),
+    #[error("invalid heartbeat response")]
+    InvalidHeartbeatResponse,
 }

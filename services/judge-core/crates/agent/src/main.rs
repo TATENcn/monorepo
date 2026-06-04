@@ -1,7 +1,7 @@
 use agent::{AgentError, verdict::handle};
 use shared::{
     models::VerdictTask,
-    protocol::{FrameId, receive, send},
+    protocol::{receive, send},
 };
 use tokio::net::UnixListener;
 use tracing::{debug, info};
@@ -21,7 +21,13 @@ async fn main() -> Result<(), AgentError> {
             }
         };
 
-        let (id, task): (FrameId, VerdictTask) = receive(&mut stream).await?;
+        let (id, task) = match receive::<VerdictTask, _>(&mut stream).await? {
+            Some(pair) => pair,
+            None => {
+                debug!("heartbeat received, closing connection");
+                continue;
+            }
+        };
 
         info!(task_id = id, language = ?task.language, "starting verdict");
 
