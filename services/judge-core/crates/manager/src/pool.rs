@@ -335,9 +335,13 @@ async fn health_check_loop(agents: Arc<RwLock<Vec<AgentHandle>>>, interval: Dura
 
     loop {
         ticker.tick().await;
-        let agents = agents.read().await;
 
-        for agent in agents.iter() {
+        let snapshot: Vec<AgentHandle> = {
+            let guard = agents.read().await;
+            guard.clone()
+        };
+
+        for agent in snapshot {
             let result = timeout(Duration::from_secs(2), async {
                 let mut stream = UnixStream::connect(&agent.socket_path).await?;
                 protocol::send_heartbeat(&mut stream).await?;
