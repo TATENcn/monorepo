@@ -17,6 +17,8 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 const NAMESPACE: &str = "judge-core";
+const AGENT_LABEL_KEY: &str = "judge-core.agent";
+const AGENT_LABEL_VALUE: &str = "true";
 const SOCKET_WAIT_TIMEOUT_SECS: u64 = 30;
 const SOCKET_WAIT_INTERVAL_MS: u64 = 100;
 
@@ -72,7 +74,7 @@ impl ContainerdProvisioner {
                 options: None,
             }),
             spec: Some(spec),
-            labels: [("judge-core.agent".to_string(), "true".to_string())].into_iter().collect(),
+            labels: [(AGENT_LABEL_KEY.to_string(), AGENT_LABEL_VALUE.to_string())].into_iter().collect(),
             ..Default::default()
         };
 
@@ -153,7 +155,7 @@ impl ContainerdProvisioner {
         let mut containers_client = ContainersClient::new(self.channel.clone());
 
         let req = ListContainersRequest {
-            filters: vec![format!("labels.\"judge-core.agent\",true")],
+            filters: vec![format!("labels.\"{}\"=={}", AGENT_LABEL_KEY, AGENT_LABEL_VALUE)],
         };
         let req = with_namespace!(req, NAMESPACE);
 
