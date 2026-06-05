@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -92,7 +92,7 @@ pub struct AgentPool {
     task_queue: Arc<Mutex<VecDeque<QueuedTask>>>,
     dispatch_tx: mpsc::Sender<()>,
     pub provisioner: ContainerdProvisioner,
-    next_frame_id: AtomicU32,
+    next_frame_id: AtomicU64,
 }
 
 impl AgentPool {
@@ -108,7 +108,7 @@ impl AgentPool {
             task_queue: task_queue.clone(),
             dispatch_tx: dispatch_tx.clone(),
             provisioner,
-            next_frame_id: AtomicU32::new(1),
+            next_frame_id: AtomicU64::new(1),
         };
 
         tokio::spawn(dispatch_loop(agents.clone(), task_queue.clone(), dispatch_rx, dispatch_tx.clone(), config));
@@ -124,7 +124,7 @@ impl AgentPool {
 
     #[tracing::instrument(skip(self, task), fields(frame_id))]
     pub async fn submit(&self, task: VerdictTask) -> Result<VerdictTaskResult, PoolError> {
-        let frame_id = self.next_frame_id.fetch_add(1, Ordering::SeqCst) as u64;
+        let frame_id = self.next_frame_id.fetch_add(1, Ordering::SeqCst);
         tracing::Span::current().record("frame_id", frame_id);
 
         let (tx, rx) = oneshot::channel();
