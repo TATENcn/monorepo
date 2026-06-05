@@ -67,11 +67,11 @@ impl AutoScaler {
                     agent_count = metrics.agent_count,
                     "scaling up: creating new agent"
                 );
+                last_scale = now;
 
                 match pool.provisioner.create().await {
                     Ok((id, socket_path)) => {
                         pool.add_agent(id, socket_path).await;
-                        last_scale = now;
                     }
                     Err(e) => {
                         error!(error = %e, "failed to create agent during scale-up");
@@ -82,14 +82,13 @@ impl AutoScaler {
 
                 if let Some(agent) = pool.find_oldest_idle_agent().await {
                     let id = agent.id.clone();
+                    last_scale = now;
 
                     pool.remove_agent(&id).await;
 
                     if let Err(e) = pool.provisioner.destroy(&id).await {
                         error!(agent_id = %id, error = %e, "failed to destroy agent during scale-down");
                     }
-
-                    last_scale = now;
                 }
             }
         }
