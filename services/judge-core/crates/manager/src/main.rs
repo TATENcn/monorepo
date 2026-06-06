@@ -5,11 +5,12 @@ use containerd_client::{
     services::v1::version_client,
     tonic::transport::{self, Channel},
 };
-use tracing::info;
+use tracing::{error, info};
 
 use manager::{
     pool::{AgentPool, PoolConfig, PoolError},
     provisioner::{ContainerdProvisioner, ProvisionError},
+    router,
     scaler::ScalerConfig,
 };
 
@@ -41,7 +42,7 @@ async fn main() -> Result<(), ManagerError> {
     pool.discover_agents().await?;
     info!(metrics = ?pool.metrics().await, "agents discovered");
 
-    pool.start_autoscaler(ScalerConfig {
+    pool.clone().start_autoscaler(ScalerConfig {
         min_agents: 2,
         max_agents: 10,
         scale_up_threshold: 5,
@@ -50,9 +51,17 @@ async fn main() -> Result<(), ManagerError> {
         check_interval_secs: 10,
     });
 
-    info!("manager ready");
+    let app = router::create_router(pool.clone());
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8000").await?;
+    info!("HTTP server listening on 0.0.0.0:8000");
 
-    // TODO: expose external API (e.g. gRPC/HTTP) to receive verdict tasks
+    tokio::spawn(async move {
+        if let Err(e) = axum::serve(listener, app).await {
+            error!(error = %e, "HTTP server error");
+        }
+    });
+
+    info!("manager ready");
 
     tokio::signal::ctrl_c().await?;
     info!("shutting down");

@@ -64,7 +64,7 @@ pub enum PoolError {
     AgentBusy { agent_id: String },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PoolMetrics {
     pub queue_size: usize,
     pub agent_count: usize,
