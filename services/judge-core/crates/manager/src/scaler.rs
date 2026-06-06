@@ -61,7 +61,13 @@ impl AutoScaler {
                 continue;
             }
 
-            if metrics.queue_size > config.scale_up_threshold && metrics.agent_count < config.max_agents {
+            let needs_scale_up = if metrics.agent_count == 0 {
+                metrics.queue_size > 0
+            } else {
+                metrics.queue_size > config.scale_up_threshold
+            };
+
+            if needs_scale_up && metrics.agent_count < config.max_agents {
                 info!(
                     queue_size = metrics.queue_size,
                     agent_count = metrics.agent_count,
