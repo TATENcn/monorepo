@@ -15,7 +15,7 @@ use tokio::{
 };
 use tracing::{debug, info, instrument, trace};
 
-use crate::limit::cgroup::CgroupGuard;
+use crate::limit::{cgroup::CgroupGuard, seccomp::seccomp_filter};
 use crate::truncate_str;
 use crate::verdict::Verdict;
 use shared::models::{KilledReason, VerdictTaskResult};
@@ -96,6 +96,15 @@ impl Verdict for Cpp {
             .stderr(Stdio::piped())
             .current_dir(&self.work_dir)
             .kill_on_drop(true);
+
+        unsafe {
+            cmd.pre_exec(|| {
+                let filter = seccomp_filter(shared::models::Language::Cpp).map_err(|e| io::Error::new(io::ErrorKind::Unsupported, e))?;
+                filter.load().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+                Ok(())
+            })
+        };
 
         // Build a unique cgroup id using verdict id
         // FIXME: there's a race condition when the child is created and when it's added to the cgroup, but I don't know how to fix it gracefully
