@@ -31,6 +31,7 @@ async fn main() -> Result<(), ManagerError> {
                 task_timeout: Duration::from_secs(45),
                 health_check_interval: Duration::from_secs(5),
                 health_check_failure_threshold: 3,
+                max_concurrent_per_agent: 5,
             },
             provisioner,
         )

@@ -14,8 +14,8 @@ use shared::{
 };
 use tokio::{
     net::UnixStream,
-    sync::{Mutex, RwLock, Semaphore, oneshot},
-    time::{sleep, timeout},
+    sync::{Mutex, Notify, RwLock, mpsc, oneshot},
+    time::timeout,
 };
 use tracing::{debug, error, info, warn};
 
@@ -28,6 +28,7 @@ pub struct PoolConfig {
     pub task_timeout: Duration,
     pub health_check_interval: Duration,
     pub health_check_failure_threshold: u32,
+    pub max_concurrent_per_agent: u32,
 }
 
 impl Default for PoolConfig {
@@ -38,6 +39,7 @@ impl Default for PoolConfig {
             task_timeout: Duration::from_secs(45),
             health_check_interval: Duration::from_secs(5),
             health_check_failure_threshold: 3,
+            max_concurrent_per_agent: 5,
         }
     }
 }
@@ -58,6 +60,8 @@ pub enum PoolError {
     Protocol(#[from] ProtocolError),
     #[error("provision error: {0}")]
     Provision(#[from] ProvisionError),
+    #[error("agent {agent_id} is busy with active tasks")]
+    AgentBusy { agent_id: String },
 }
 
 #[derive(Debug, Clone)]
@@ -90,31 +94,41 @@ pub struct AgentPool {
     config: PoolConfig,
     agents: Arc<RwLock<Vec<AgentHandle>>>,
     task_queue: Arc<Mutex<VecDeque<QueuedTask>>>,
-    dispatch_permits: Arc<Semaphore>,
     pub provisioner: ContainerdProvisioner,
     next_frame_id: AtomicU64,
+    task_signal_tx: mpsc::UnboundedSender<()>,
+    agent_available: Arc<Notify>,
 }
 
 impl AgentPool {
     pub async fn new(config: PoolConfig, provisioner: ContainerdProvisioner) -> Self {
         let agents = Arc::new(RwLock::new(Vec::new()));
         let task_queue = Arc::new(Mutex::new(VecDeque::new()));
-        let dispatch_permits = Arc::new(Semaphore::new(0));
+        let (task_signal_tx, task_signal_rx) = mpsc::unbounded_channel();
+        let agent_available = Arc::new(Notify::new());
 
         let pool = Self {
             config: config.clone(),
             agents: agents.clone(),
             task_queue: task_queue.clone(),
-            dispatch_permits: dispatch_permits.clone(),
             provisioner,
             next_frame_id: AtomicU64::new(1),
+            task_signal_tx: task_signal_tx.clone(),
+            agent_available: agent_available.clone(),
         };
 
-        tokio::spawn(dispatch_loop(agents.clone(), task_queue.clone(), dispatch_permits.clone(), config));
+        tokio::spawn(dispatch_loop(
+            agents.clone(),
+            task_queue.clone(),
+            task_signal_tx,
+            task_signal_rx,
+            agent_available.clone(),
+            config,
+        ));
 
         tokio::spawn(health_check_loop(
             agents.clone(),
-            dispatch_permits.clone(),
+            agent_available.clone(),
             pool.config.health_check_interval,
             pool.config.health_check_failure_threshold,
         ));
@@ -136,6 +150,8 @@ impl AgentPool {
                 return Err(PoolError::QueueFull);
             }
 
+            let was_empty = queue.is_empty();
+
             queue.push_back(QueuedTask {
                 frame_id,
                 task,
@@ -143,16 +159,18 @@ impl AgentPool {
                 result_tx: tx,
             });
             debug!(frame_id, queue_size = queue.len(), "task queued");
-        }
 
-        self.dispatch_permits.add_permits(1);
+            if was_empty {
+                let _ = self.task_signal_tx.send(());
+            }
+        }
 
         rx.await.map_err(|_| PoolError::AgentUnavailable)?
     }
 
     pub async fn metrics(&self) -> PoolMetrics {
-        let agents = self.agents.read().await;
         let queue = self.task_queue.lock().await;
+        let agents = self.agents.read().await;
 
         PoolMetrics {
             queue_size: queue.len(),
@@ -193,16 +211,21 @@ impl AgentPool {
         });
 
         info!(agent_id = %id, agent_count = agents.len(), "agent added to pool");
-        self.dispatch_permits.add_permits(1);
+        self.agent_available.notify_one();
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn remove_agent(&self, id: &str) -> Option<AgentHandle> {
+    pub async fn remove_agent(&self, id: &str) -> Result<AgentHandle, PoolError> {
         let mut agents = self.agents.write().await;
-        let pos = agents.iter().position(|a| a.id == id)?;
+        let pos = agents.iter().position(|a| a.id == id).ok_or(PoolError::AgentUnavailable)?;
+
+        if agents[pos].active_tasks.load(Ordering::Relaxed) > 0 {
+            return Err(PoolError::AgentBusy { agent_id: id.to_string() });
+        }
+
         let agent = agents.remove(pos);
         info!(agent_id = %id, agent_count = agents.len(), "agent removed from pool");
-        Some(agent)
+        Ok(agent)
     }
 
     #[tracing::instrument(skip(self))]
@@ -220,44 +243,44 @@ impl AgentPool {
     }
 }
 
-async fn dispatch_loop(agents: Arc<RwLock<Vec<AgentHandle>>>, queue: Arc<Mutex<VecDeque<QueuedTask>>>, permits: Arc<Semaphore>, config: PoolConfig) {
+async fn dispatch_loop(
+    agents: Arc<RwLock<Vec<AgentHandle>>>,
+    queue: Arc<Mutex<VecDeque<QueuedTask>>>,
+    task_signal_tx: mpsc::UnboundedSender<()>,
+    mut task_signal_rx: mpsc::UnboundedReceiver<()>,
+    agent_available: Arc<Notify>,
+    config: PoolConfig,
+) {
     loop {
-        permits.acquire().await.unwrap().forget();
-
         let task = {
-            let mut queue = queue.lock().await;
-            queue.pop_front()
+            let mut q = queue.lock().await;
+            q.pop_front()
         };
 
-        let Some(mut task) = task else {
-            continue;
+        let mut task = match task {
+            Some(t) => t,
+            None => {
+                task_signal_rx.recv().await.expect("task_signal sender should not be dropped");
+                continue;
+            }
         };
 
-        let agent = {
-            let agents = agents.read().await;
-            agents
+        let agent = loop {
+            let agents_guard = agents.read().await;
+            if let Some(a) = agents_guard
                 .iter()
-                .filter(|a| a.healthy.load(Ordering::Relaxed))
+                .filter(|a| a.healthy.load(Ordering::Relaxed) && a.active_tasks.load(Ordering::Relaxed) < config.max_concurrent_per_agent)
                 .min_by_key(|a| a.active_tasks.load(Ordering::Relaxed))
                 .cloned()
-        };
-
-        let config = config.clone();
-        let Some(agent) = agent else {
-            warn!(frame_id = task.frame_id, "no healthy agent available");
-            if task.retries >= config.max_retries {
-                let _ = task.result_tx.send(Err(PoolError::AgentUnavailable));
-            } else {
-                task.retries += 1;
-                let mut q = queue.lock().await;
-                q.push_front(task);
-                let permits = permits.clone();
-                tokio::spawn(async move {
-                    sleep(Duration::from_secs(1)).await;
-                    permits.add_permits(1);
-                });
+            {
+                break a;
             }
-            continue;
+            drop(agents_guard);
+
+            tokio::select! {
+                _ = agent_available.notified() => {},
+                _ = task_signal_rx.recv() => {},
+            }
         };
 
         agent.active_tasks.fetch_add(1, Ordering::Relaxed);
@@ -269,11 +292,17 @@ async fn dispatch_loop(agents: Arc<RwLock<Vec<AgentHandle>>>, queue: Arc<Mutex<V
         );
 
         let queue_clone = queue.clone();
-        let permits_clone = permits.clone();
+        let agent_available_clone = agent_available.clone();
+        let task_signal_tx_clone = task_signal_tx.clone();
+        let config = config.clone();
 
         tokio::spawn(async move {
             let result = execute_task(&agent, task.frame_id, &task.task, &config).await;
-            agent.active_tasks.fetch_sub(1, Ordering::Relaxed);
+
+            let prev = agent.active_tasks.fetch_sub(1, Ordering::Relaxed);
+            if prev == 1 {
+                agent_available_clone.notify_one();
+            }
 
             match result {
                 Ok(res) => {
@@ -287,7 +316,7 @@ async fn dispatch_loop(agents: Arc<RwLock<Vec<AgentHandle>>>, queue: Arc<Mutex<V
                         task.retries += 1;
                         let mut q = queue_clone.lock().await;
                         q.push_back(task);
-                        permits_clone.add_permits(1);
+                        let _ = task_signal_tx_clone.send(());
                     } else {
                         let _ = task.result_tx.send(Err(PoolError::MaxRetriesExceeded { retries: task.retries }));
                     }
@@ -322,7 +351,7 @@ async fn execute_task(agent: &AgentHandle, frame_id: FrameId, task: &VerdictTask
     Ok(result)
 }
 
-async fn health_check_loop(agents: Arc<RwLock<Vec<AgentHandle>>>, permits: Arc<Semaphore>, interval: Duration, failure_threshold: u32) {
+async fn health_check_loop(agents: Arc<RwLock<Vec<AgentHandle>>>, agent_available: Arc<Notify>, interval: Duration, failure_threshold: u32) {
     let mut ticker = tokio::time::interval(interval);
 
     loop {
@@ -342,7 +371,10 @@ async fn health_check_loop(agents: Arc<RwLock<Vec<AgentHandle>>>, permits: Arc<S
             .await;
 
             let healthy = match result {
-                Ok(Ok(())) => true,
+                Ok(Ok(())) => {
+                    agent.consecutive_failures.store(0, Ordering::Relaxed);
+                    true
+                }
                 Ok(Err(e)) => {
                     let failures = agent.consecutive_failures.fetch_add(1, Ordering::Relaxed) + 1;
                     warn!(agent_id = %agent.id, failures, error = %e, "health check failed");
@@ -363,7 +395,7 @@ async fn health_check_loop(agents: Arc<RwLock<Vec<AgentHandle>>>, permits: Arc<S
             } else if !was_healthy && healthy {
                 info!(agent_id = %agent.id, "agent recovered");
                 agent.consecutive_failures.store(0, Ordering::Relaxed);
-                permits.add_permits(1);
+                agent_available.notify_one();
             }
         }
     }

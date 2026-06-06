@@ -84,10 +84,15 @@ impl AutoScaler {
                     let id = agent.id.clone();
                     last_scale = now;
 
-                    pool.remove_agent(&id).await;
-
-                    if let Err(e) = pool.provisioner.destroy(&id).await {
-                        error!(agent_id = %id, error = %e, "failed to destroy agent during scale-down");
+                    match pool.remove_agent(&id).await {
+                        Ok(_) => {
+                            if let Err(e) = pool.provisioner.destroy(&id).await {
+                                error!(agent_id = %id, error = %e, "failed to destroy agent during scale-down");
+                            }
+                        }
+                        Err(e) => {
+                            error!(agent_id = %id, error = %e, "failed to remove agent during scale-down");
+                        }
                     }
                 }
             }
