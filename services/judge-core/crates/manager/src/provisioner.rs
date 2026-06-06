@@ -166,7 +166,10 @@ impl ContainerdProvisioner {
     }
 
     fn build_agent_spec(&self, socket_path: &Path) -> Result<Any, ProvisionError> {
-        use oci_spec::runtime::{LinuxBuilder, LinuxNamespaceBuilder, LinuxNamespaceType, MountBuilder, ProcessBuilder, RootBuilder, SpecBuilder};
+        use oci_spec::runtime::{
+            LinuxBuilder, LinuxDeviceBuilder, LinuxDeviceCgroupBuilder, LinuxDeviceType, LinuxNamespaceBuilder, LinuxNamespaceType, LinuxResourcesBuilder,
+            MountBuilder, ProcessBuilder, RootBuilder, SpecBuilder,
+        };
 
         let socket_dir = socket_path.parent().unwrap().to_str().expect("socket path is not valid utf-8");
 
@@ -174,6 +177,30 @@ impl ContainerdProvisioner {
             .root(RootBuilder::default().path("rootfs").build()?)
             .process(ProcessBuilder::default().args(vec!["/usr/local/bin/agent".to_string()]).cwd("/").build()?)
             .mounts(vec![
+                MountBuilder::default().destination("/proc").source("proc").typ("proc").build()?,
+                MountBuilder::default()
+                    .destination("/dev")
+                    .source("tmpfs")
+                    .typ("tmpfs")
+                    .options(vec![
+                        "nosuid".to_string(),
+                        "strictatime".to_string(),
+                        "mode=755".to_string(),
+                        "size=65536k".to_string(),
+                    ])
+                    .build()?,
+                MountBuilder::default()
+                    .destination("/dev/pts")
+                    .source("devpts")
+                    .typ("devpts")
+                    .options(vec![
+                        "nosuid".to_string(),
+                        "noexec".to_string(),
+                        "newinstance".to_string(),
+                        "ptmxmode=0666".to_string(),
+                        "mode=0620".to_string(),
+                    ])
+                    .build()?,
                 MountBuilder::default()
                     .destination("/run/judge-core")
                     .source(socket_dir)
@@ -190,6 +217,95 @@ impl ContainerdProvisioner {
                         LinuxNamespaceBuilder::default().typ(LinuxNamespaceType::Mount).build()?,
                         LinuxNamespaceBuilder::default().typ(LinuxNamespaceType::Network).build()?,
                     ])
+                    .devices(vec![
+                        LinuxDeviceBuilder::default()
+                            .path("/dev/null")
+                            .typ(LinuxDeviceType::C)
+                            .major(1)
+                            .minor(3)
+                            .file_mode(0o666_u32)
+                            .build()?,
+                        LinuxDeviceBuilder::default()
+                            .path("/dev/zero")
+                            .typ(LinuxDeviceType::C)
+                            .major(1)
+                            .minor(5)
+                            .file_mode(0o666_u32)
+                            .build()?,
+                        LinuxDeviceBuilder::default()
+                            .path("/dev/random")
+                            .typ(LinuxDeviceType::C)
+                            .major(1)
+                            .minor(8)
+                            .file_mode(0o666_u32)
+                            .build()?,
+                        LinuxDeviceBuilder::default()
+                            .path("/dev/urandom")
+                            .typ(LinuxDeviceType::C)
+                            .major(1)
+                            .minor(9)
+                            .file_mode(0o666_u32)
+                            .build()?,
+                        LinuxDeviceBuilder::default()
+                            .path("/dev/tty")
+                            .typ(LinuxDeviceType::C)
+                            .major(5)
+                            .minor(0)
+                            .file_mode(0o666_u32)
+                            .build()?,
+                    ])
+                    .resources(
+                        LinuxResourcesBuilder::default()
+                            .devices(vec![
+                                // deny all by default
+                                LinuxDeviceCgroupBuilder::default()
+                                    .allow(false)
+                                    .typ(LinuxDeviceType::A)
+                                    .access("rwm".to_string())
+                                    .build()?,
+                                // allow null
+                                LinuxDeviceCgroupBuilder::default()
+                                    .allow(true)
+                                    .typ(LinuxDeviceType::C)
+                                    .major(1)
+                                    .minor(3)
+                                    .access("rwm".to_string())
+                                    .build()?,
+                                // allow zero
+                                LinuxDeviceCgroupBuilder::default()
+                                    .allow(true)
+                                    .typ(LinuxDeviceType::C)
+                                    .major(1)
+                                    .minor(5)
+                                    .access("rwm".to_string())
+                                    .build()?,
+                                // allow random
+                                LinuxDeviceCgroupBuilder::default()
+                                    .allow(true)
+                                    .typ(LinuxDeviceType::C)
+                                    .major(1)
+                                    .minor(8)
+                                    .access("rwm".to_string())
+                                    .build()?,
+                                // allow urandom
+                                LinuxDeviceCgroupBuilder::default()
+                                    .allow(true)
+                                    .typ(LinuxDeviceType::C)
+                                    .major(1)
+                                    .minor(9)
+                                    .access("rwm".to_string())
+                                    .build()?,
+                                // allow tty
+                                LinuxDeviceCgroupBuilder::default()
+                                    .allow(true)
+                                    .typ(LinuxDeviceType::C)
+                                    .major(5)
+                                    .minor(0)
+                                    .access("rwm".to_string())
+                                    .build()?,
+                            ])
+                            .build()?,
+                    )
                     .build()?,
             )
             .build()?;
