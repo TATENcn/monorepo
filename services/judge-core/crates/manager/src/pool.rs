@@ -273,6 +273,8 @@ async fn dispatch_loop(
                 agent = a;
                 task = q.pop_front().unwrap();
             } else {
+                drop(agents_guard);
+                drop(q);
                 tokio::select! {
                     _ = agent_available.notified() => {},
                     _ = task_signal_rx.recv() => {},
