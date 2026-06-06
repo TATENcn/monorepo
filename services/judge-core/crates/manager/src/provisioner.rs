@@ -5,9 +5,10 @@ use containerd_client::tonic::Request;
 use containerd_client::{
     services::v1::{
         Container, CreateContainerRequest, CreateTaskRequest, DeleteContainerRequest, DeleteTaskRequest, GetImageRequest, KillRequest, ListContainersRequest,
-        StartRequest,
+        ReadContentRequest, StartRequest,
         container::Runtime,
         containers_client::ContainersClient,
+        content_client::ContentClient,
         images_client::ImagesClient,
         snapshots::{PrepareSnapshotRequest, RemoveSnapshotRequest, snapshots_client::SnapshotsClient},
         tasks_client::TasksClient,
@@ -15,7 +16,10 @@ use containerd_client::{
     tonic::transport::Channel,
     with_namespace,
 };
+use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use prost_types::Any;
+use sha2::{Digest, Sha256};
+use tokio::sync::OnceCell;
 use tokio::time::{Duration, sleep};
 use tokio::{fs, io};
 use tracing::{debug, info, warn};
@@ -33,6 +37,7 @@ pub struct ContainerdProvisioner {
     channel: Channel,
     image: String,
     socket_base: PathBuf,
+    chain_id: OnceCell<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -55,6 +60,7 @@ impl ContainerdProvisioner {
             channel,
             image: image.into(),
             socket_base: PathBuf::from("/run/judge-core/agents"),
+            chain_id: OnceCell::new(),
         }
     }
 
@@ -68,15 +74,8 @@ impl ContainerdProvisioner {
         fs::create_dir_all(&socket_dir).await?;
         debug!(agent_id = %id, socket_dir = %socket_dir.display(), "created socket directory");
 
-        let mut images_client = ImagesClient::new(self.channel.clone());
-        let get_image_req = with_namespace!(GetImageRequest { name: self.image.clone() }, NAMESPACE);
-        let image_resp = images_client.get(get_image_req).await?;
-        let image = image_resp
-            .into_inner()
-            .image
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "image not found"))?;
-        let parent_digest = image.target.map(|t| t.digest).unwrap_or_default();
-        debug!(agent_id = %id, image = %self.image, parent = %parent_digest, "got image digest");
+        let parent_digest = self.resolve_chain_id().await?;
+        debug!(agent_id = %id, image = %self.image, parent = %parent_digest, "resolved image chain id");
 
         let snapshotter = "overlayfs";
         let mut snapshots_client = SnapshotsClient::new(self.channel.clone());
@@ -219,6 +218,96 @@ impl ContainerdProvisioner {
         let ids = resp.into_inner().containers.into_iter().map(|c| c.id).collect();
 
         Ok(ids)
+    }
+
+    /// Resolve image reference to its rootfs chain ID for snapshot parent
+    #[tracing::instrument(skip(self))]
+    async fn resolve_chain_id(&self) -> Result<String, ProvisionError> {
+        self.chain_id.get_or_try_init(|| self.compute_chain_id_from_image()).await.cloned()
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn compute_chain_id_from_image(&self) -> Result<String, ProvisionError> {
+        use oci_spec::image::{Arch, Os};
+
+        let mut images_client = ImagesClient::new(self.channel.clone());
+        let get_image_req = with_namespace!(GetImageRequest { name: self.image.clone() }, NAMESPACE);
+        let image_resp = images_client.get(get_image_req).await?;
+        let image = image_resp
+            .into_inner()
+            .image
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "image not found"))?;
+
+        let target = image
+            .target
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "image has no target descriptor"))?;
+        let blob = self.read_content_blob(&target.digest, target.size).await?;
+
+        let media_type = target.media_type.as_str();
+        let chain_id = if media_type == "application/vnd.oci.image.index.v1+json" || media_type == "application/vnd.docker.distribution.manifest.list.v2+json" {
+            let index = ImageIndex::from_reader(&*blob)?;
+            let manifest_desc = index
+                .manifests()
+                .iter()
+                .find(|m| {
+                    m.platform()
+                        .as_ref()
+                        .map(|p| *p.os() == Os::Linux && *p.architecture() == Arch::Amd64)
+                        .unwrap_or(false)
+                })
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no manifest for linux/amd64 platform"))?;
+            let manifest_blob = self.read_content_blob(manifest_desc.digest().as_ref(), manifest_desc.size() as i64).await?;
+            let manifest = ImageManifest::from_reader(&*manifest_blob)?;
+            let config_desc = manifest.config();
+            let config_blob = self.read_content_blob(config_desc.digest().as_ref(), config_desc.size() as i64).await?;
+            let config = ImageConfiguration::from_reader(&*config_blob)?;
+            Self::compute_chain_id(config.rootfs().diff_ids())
+        } else if media_type == "application/vnd.oci.image.manifest.v1+json" || media_type == "application/vnd.docker.distribution.manifest.v2+json" {
+            let manifest = ImageManifest::from_reader(&*blob)?;
+            let config_desc = manifest.config();
+            let config_blob = self.read_content_blob(config_desc.digest().as_ref(), config_desc.size() as i64).await?;
+            let config = ImageConfiguration::from_reader(&*config_blob)?;
+            Self::compute_chain_id(config.rootfs().diff_ids())
+        } else {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, format!("unsupported image media type: {}", media_type)).into());
+        };
+
+        info!(chain_id = %chain_id, "resolved and cached chain id");
+        Ok(chain_id)
+    }
+
+    /// Read a content blob from the content store
+    async fn read_content_blob(&self, digest: &str, size: i64) -> Result<Vec<u8>, ProvisionError> {
+        let mut content_client = ContentClient::new(self.channel.clone());
+        let req = with_namespace!(
+            ReadContentRequest {
+                digest: digest.to_string(),
+                offset: 0,
+                size,
+            },
+            NAMESPACE
+        );
+        let mut stream = content_client.read(req).await?.into_inner();
+        let mut data = Vec::new();
+        while let Some(chunk) = stream.message().await? {
+            data.extend_from_slice(&chunk.data);
+        }
+        Ok(data)
+    }
+
+    /// Compute containerd chain ID from diff IDs
+    fn compute_chain_id(diff_ids: &[String]) -> String {
+        if diff_ids.is_empty() {
+            return String::new();
+        }
+        let mut chain = diff_ids[0].clone();
+        for diff_id in &diff_ids[1..] {
+            let mut hasher = Sha256::new();
+            hasher.update(format!("{} {}", chain, diff_id).as_bytes());
+            let hash = hasher.finalize();
+            chain = format!("sha256:{}", hash.iter().map(|b| format!("{:02x}", b)).collect::<String>());
+        }
+        chain
     }
 
     fn build_agent_spec(&self, socket_path: &Path) -> Result<Any, ProvisionError> {
