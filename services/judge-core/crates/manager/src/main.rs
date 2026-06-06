@@ -22,7 +22,7 @@ async fn main() -> Result<(), ManagerError> {
 
     info!(version = containerd_version(connection.clone()).await?, "containerd connected");
 
-    let provisioner = ContainerdProvisioner::new(connection, "judge-core:latest");
+    let provisioner = ContainerdProvisioner::new(connection, "docker.io/library/judge-core:latest");
 
     let pool = Arc::new(
         AgentPool::new(

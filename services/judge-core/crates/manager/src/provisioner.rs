@@ -4,15 +4,20 @@ use std::time::Instant;
 use containerd_client::tonic::Request;
 use containerd_client::{
     services::v1::{
-        Container, CreateContainerRequest, CreateTaskRequest, DeleteContainerRequest, DeleteTaskRequest, KillRequest, ListContainersRequest, StartRequest,
-        container::Runtime, containers_client::ContainersClient, tasks_client::TasksClient,
+        Container, CreateContainerRequest, CreateTaskRequest, DeleteContainerRequest, DeleteTaskRequest, GetImageRequest, KillRequest, ListContainersRequest,
+        StartRequest,
+        container::Runtime,
+        containers_client::ContainersClient,
+        images_client::ImagesClient,
+        snapshots::{PrepareSnapshotRequest, RemoveSnapshotRequest, snapshots_client::SnapshotsClient},
+        tasks_client::TasksClient,
     },
     tonic::transport::Channel,
     with_namespace,
 };
 use prost_types::Any;
-use tokio::fs;
 use tokio::time::{Duration, sleep};
+use tokio::{fs, io};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -63,6 +68,41 @@ impl ContainerdProvisioner {
         fs::create_dir_all(&socket_dir).await?;
         debug!(agent_id = %id, socket_dir = %socket_dir.display(), "created socket directory");
 
+        let mut images_client = ImagesClient::new(self.channel.clone());
+        let get_image_req = with_namespace!(GetImageRequest { name: self.image.clone() }, NAMESPACE);
+        let image_resp = images_client.get(get_image_req).await?;
+        let image = image_resp
+            .into_inner()
+            .image
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "image not found"))?;
+        let parent_digest = image.target.map(|t| t.digest).unwrap_or_default();
+        debug!(agent_id = %id, image = %self.image, parent = %parent_digest, "got image digest");
+
+        let snapshotter = "overlayfs";
+        let mut snapshots_client = SnapshotsClient::new(self.channel.clone());
+        let prepare_req = with_namespace!(
+            PrepareSnapshotRequest {
+                snapshotter: snapshotter.to_string(),
+                key: id.clone(),
+                parent: parent_digest,
+                labels: Default::default(),
+            },
+            NAMESPACE
+        );
+        snapshots_client.prepare(prepare_req).await?;
+        info!(agent_id = %id, snapshotter = %snapshotter, "snapshot prepared");
+
+        let mounts_req = with_namespace!(
+            containerd_client::services::v1::snapshots::MountsRequest {
+                snapshotter: snapshotter.to_string(),
+                key: id.clone(),
+            },
+            NAMESPACE
+        );
+        let mounts_resp = snapshots_client.mounts(mounts_req).await?;
+        let rootfs_mounts = mounts_resp.into_inner().mounts;
+        debug!(agent_id = %id, mounts_count = rootfs_mounts.len(), "got rootfs mounts");
+
         let mut containers_client = ContainersClient::new(self.channel.clone());
 
         let spec = self.build_agent_spec(&socket_path)?;
@@ -74,6 +114,8 @@ impl ContainerdProvisioner {
                 options: None,
             }),
             spec: Some(spec),
+            snapshotter: snapshotter.to_string(),
+            snapshot_key: id.clone(),
             labels: [(AGENT_LABEL_KEY.to_string(), AGENT_LABEL_VALUE.to_string())].into_iter().collect(),
             ..Default::default()
         };
@@ -88,6 +130,7 @@ impl ContainerdProvisioner {
 
         let req = CreateTaskRequest {
             container_id: id.clone(),
+            rootfs: rootfs_mounts,
             ..Default::default()
         };
         let req = with_namespace!(req, NAMESPACE);
@@ -139,6 +182,19 @@ impl ContainerdProvisioner {
         let req = with_namespace!(req, NAMESPACE);
 
         containers_client.delete(req).await?;
+
+        let mut snapshots_client = SnapshotsClient::new(self.channel.clone());
+        let snapshotter = "overlayfs";
+        let remove_req = with_namespace!(
+            RemoveSnapshotRequest {
+                snapshotter: snapshotter.to_string(),
+                key: id.to_string(),
+            },
+            NAMESPACE
+        );
+        if let Err(e) = snapshots_client.remove(remove_req).await {
+            warn!(agent_id = id, error = %e, "failed to remove snapshot (may already be removed)");
+        }
 
         let socket_dir = self.socket_base.join(id);
         if let Err(e) = fs::remove_dir_all(&socket_dir).await {
