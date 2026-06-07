@@ -4,7 +4,7 @@ use shared::{
     protocol::{receive, send},
 };
 use tokio::net::UnixListener;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 #[tokio::main]
 async fn main() -> Result<(), AgentError> {
@@ -21,25 +21,35 @@ async fn main() -> Result<(), AgentError> {
             }
         };
 
-        let (id, task) = match receive::<VerdictTask, _>(&mut stream).await? {
-            Some(pair) => pair,
-            None => {
-                debug!("heartbeat received, closing connection");
-                continue;
+        tokio::spawn(async move {
+            let result = async {
+                let (id, task) = match receive::<VerdictTask, _>(&mut stream).await? {
+                    Some(pair) => pair,
+                    None => {
+                        debug!("heartbeat received, closing connection");
+                        return Ok::<(), AgentError>(());
+                    }
+                };
+
+                info!(task_id = id, language = ?task.language, "starting verdict");
+
+                let res = match task.language {
+                    shared::models::Language::Cpp => handle::<agent::verdict::cpp::Cpp>(id, task).await,
+                };
+
+                info!(task_id = id, result = ?res, "verdict completed");
+
+                send(&mut stream, id, res).await?;
+
+                debug!(task_id = id, "response sent");
+                Ok(())
             }
-        };
+            .await;
 
-        info!(task_id = id, language = ?task.language, "starting verdict");
-
-        let res = match task.language {
-            shared::models::Language::Cpp => handle::<agent::verdict::cpp::Cpp>(id, task).await,
-        };
-
-        info!(task_id = id, result = ?res, "verdict completed");
-
-        send(&mut stream, id, res).await?;
-
-        debug!(task_id = id, "response sent");
+            if let Err(e) = result {
+                error!(error = %e, "connection handler error");
+            }
+        });
     }
 
     Ok(())
