@@ -15,11 +15,13 @@ use shared::{
 use tokio::{
     net::UnixStream,
     sync::{Mutex, Notify, RwLock, mpsc, oneshot},
-    time::timeout,
+    time::{interval, timeout},
 };
 use tracing::{debug, error, info, warn};
 
 use crate::provisioner::{ContainerdProvisioner, ProvisionError};
+
+const DRAIN_CHECK_INTERVAL_SECS: u64 = 5;
 
 #[derive(Debug, Clone)]
 pub struct PoolConfig {
@@ -70,6 +72,8 @@ pub struct PoolMetrics {
     pub agent_count: usize,
     pub healthy_agent_count: usize,
     pub active_tasks: u32,
+    pub draining_agent_count: usize,
+    pub unhealthy_agent_count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +84,7 @@ pub struct AgentHandle {
     pub healthy: Arc<AtomicBool>,
     pub consecutive_failures: Arc<AtomicU32>,
     pub created_at: Instant,
+    pub shutting_down: Arc<AtomicBool>,
 }
 
 #[derive(Debug)]
@@ -94,7 +99,7 @@ pub struct AgentPool {
     config: PoolConfig,
     agents: Arc<RwLock<Vec<AgentHandle>>>,
     task_queue: Arc<Mutex<VecDeque<QueuedTask>>>,
-    pub provisioner: ContainerdProvisioner,
+    provisioner: Arc<ContainerdProvisioner>,
     next_frame_id: AtomicU64,
     task_signal_tx: mpsc::UnboundedSender<()>,
     agent_available: Arc<Notify>,
@@ -106,12 +111,13 @@ impl AgentPool {
         let task_queue = Arc::new(Mutex::new(VecDeque::new()));
         let (task_signal_tx, task_signal_rx) = mpsc::unbounded_channel();
         let agent_available = Arc::new(Notify::new());
+        let provisioner = Arc::new(provisioner);
 
         let pool = Self {
             config: config.clone(),
             agents: agents.clone(),
             task_queue: task_queue.clone(),
-            provisioner,
+            provisioner: provisioner.clone(),
             next_frame_id: AtomicU64::new(1),
             task_signal_tx: task_signal_tx.clone(),
             agent_available: agent_available.clone(),
@@ -132,6 +138,8 @@ impl AgentPool {
             pool.config.health_check_interval,
             pool.config.health_check_failure_threshold,
         ));
+
+        tokio::spawn(drain_loop(agents.clone(), provisioner));
 
         pool
     }
@@ -172,11 +180,18 @@ impl AgentPool {
         let queue = self.task_queue.lock().await;
         let agents = self.agents.read().await;
 
+        let total_active: u32 = agents.iter().map(|a| a.active_tasks.load(Ordering::Relaxed)).sum();
+        let healthy_count = agents.iter().filter(|a| a.healthy.load(Ordering::Relaxed)).count();
+        let draining_count = agents.iter().filter(|a| a.shutting_down.load(Ordering::Relaxed)).count();
+        let unhealthy_count = agents.iter().filter(|a| !a.healthy.load(Ordering::Relaxed)).count();
+
         PoolMetrics {
             queue_size: queue.len(),
             agent_count: agents.len(),
-            healthy_agent_count: agents.iter().filter(|a| a.healthy.load(Ordering::Relaxed)).count(),
-            active_tasks: agents.iter().map(|a| a.active_tasks.load(Ordering::Relaxed)).sum(),
+            healthy_agent_count: healthy_count,
+            active_tasks: total_active,
+            draining_agent_count: draining_count,
+            unhealthy_agent_count: unhealthy_count,
         }
     }
 
@@ -194,6 +209,20 @@ impl AgentPool {
     }
 
     #[tracing::instrument(skip(self))]
+    pub async fn create_agent(&self) -> Result<(), PoolError> {
+        match self.provisioner.create().await {
+            Ok((id, socket_path)) => {
+                self.add_agent(id, socket_path).await;
+                Ok(())
+            }
+            Err(e) => {
+                error!(error = %e, "failed to create agent");
+                Err(PoolError::Provision(e))
+            }
+        }
+    }
+
+    #[tracing::instrument(skip(self))]
     pub async fn add_agent(&self, id: String, socket_path: PathBuf) {
         let mut agents = self.agents.write().await;
         if agents.iter().any(|a| a.id == id) {
@@ -208,6 +237,7 @@ impl AgentPool {
             healthy: Arc::new(AtomicBool::new(true)),
             consecutive_failures: Arc::new(AtomicU32::new(0)),
             created_at: Instant::now(),
+            shutting_down: Arc::new(AtomicBool::new(false)),
         });
 
         info!(agent_id = %id, agent_count = agents.len(), "agent added to pool");
@@ -218,14 +248,18 @@ impl AgentPool {
     pub async fn remove_agent(&self, id: &str) -> Result<AgentHandle, PoolError> {
         let mut agents = self.agents.write().await;
         let pos = agents.iter().position(|a| a.id == id).ok_or(PoolError::AgentUnavailable)?;
-
-        if agents[pos].active_tasks.load(Ordering::Relaxed) > 0 {
-            return Err(PoolError::AgentBusy { agent_id: id.to_string() });
-        }
-
         let agent = agents.remove(pos);
         info!(agent_id = %id, agent_count = agents.len(), "agent removed from pool");
         Ok(agent)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn shutdown_agent(&self, id: &str) -> Result<(), PoolError> {
+        let agents = self.agents.read().await;
+        let agent = agents.iter().find(|a| a.id == id).ok_or(PoolError::AgentUnavailable)?;
+        agent.shutting_down.store(true, Ordering::Relaxed);
+        info!(agent_id = %id, "agent marked for shutdown");
+        Ok(())
     }
 
     #[tracing::instrument(skip(self))]
@@ -233,12 +267,12 @@ impl AgentPool {
         tokio::spawn(crate::scaler::AutoScaler::run(self, config));
     }
 
-    pub async fn find_oldest_idle_agent(&self) -> Option<AgentHandle> {
+    pub async fn find_least_loaded_agent(&self) -> Option<AgentHandle> {
         let agents = self.agents.read().await;
         agents
             .iter()
-            .filter(|a| a.healthy.load(Ordering::Relaxed) && a.active_tasks.load(Ordering::Relaxed) == 0)
-            .min_by_key(|a| a.created_at)
+            .filter(|a| a.healthy.load(Ordering::Relaxed) && !a.shutting_down.load(Ordering::Relaxed))
+            .min_by_key(|a| a.active_tasks.load(Ordering::Relaxed))
             .cloned()
     }
 }
@@ -266,7 +300,11 @@ async fn dispatch_loop(
             let agents_guard = agents.read().await;
             if let Some(a) = agents_guard
                 .iter()
-                .filter(|a| a.healthy.load(Ordering::Relaxed) && a.active_tasks.load(Ordering::Relaxed) < config.max_concurrent_per_agent)
+                .filter(|a| {
+                    a.healthy.load(Ordering::Relaxed)
+                        && !a.shutting_down.load(Ordering::Relaxed)
+                        && a.active_tasks.load(Ordering::Relaxed) < config.max_concurrent_per_agent
+                })
                 .min_by_key(|a| a.active_tasks.load(Ordering::Relaxed))
                 .cloned()
             {
@@ -396,6 +434,42 @@ async fn health_check_loop(agents: Arc<RwLock<Vec<AgentHandle>>>, agent_availabl
                 info!(agent_id = %agent.id, "agent recovered");
                 agent.consecutive_failures.store(0, Ordering::Relaxed);
                 agent_available.notify_one();
+            }
+        }
+    }
+}
+
+async fn drain_loop(agents: Arc<RwLock<Vec<AgentHandle>>>, provisioner: Arc<ContainerdProvisioner>) {
+    let mut ticker = interval(Duration::from_secs(DRAIN_CHECK_INTERVAL_SECS));
+
+    loop {
+        ticker.tick().await;
+
+        let snapshot = {
+            let guard = agents.read().await;
+            guard.clone()
+        };
+
+        for agent in snapshot {
+            let should_destroy = if !agent.healthy.load(Ordering::Relaxed) {
+                true
+            } else if agent.shutting_down.load(Ordering::Relaxed) && agent.active_tasks.load(Ordering::Relaxed) == 0 {
+                true
+            } else {
+                false
+            };
+
+            if should_destroy {
+                let mut guard = agents.write().await;
+                let pos = guard.iter().position(|a| a.id == agent.id).unwrap();
+                guard.remove(pos);
+                drop(guard);
+
+                if let Err(e) = provisioner.destroy(&agent.id).await {
+                    error!(agent_id = %agent.id, error = %e, "failed to destroy agent in drain loop");
+                } else {
+                    info!(agent_id = %agent.id, "agent destroyed in drain loop");
+                }
             }
         }
     }

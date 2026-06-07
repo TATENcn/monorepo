@@ -45,10 +45,15 @@ async fn main() -> Result<(), ManagerError> {
     pool.clone().start_autoscaler(ScalerConfig {
         min_agents: 2,
         max_agents: 10,
-        scale_up_threshold: 5,
-        scale_down_threshold: 3,
-        cooldown_secs: 60,
+        scale_down_utilization_pct: 0.3,
+        scale_up_cooldown_secs: 5,
+        scale_down_cooldown_secs: 300,
         check_interval_secs: 10,
+        provision_time_secs: 30,
+        max_scale_up_batch: 3,
+        scale_down_confirm_ticks: 3,
+        ema_alpha: 0.3,
+        max_concurrent_per_agent: 5,
     });
 
     let app = router::create_router(pool.clone());
