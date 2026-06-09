@@ -364,7 +364,7 @@ async fn dispatch_loop(
     }
 }
 
-#[tracing::instrument(skip(agent, task), fields(frame_id))]
+#[tracing::instrument(skip(agent, task, config), fields(frame_id))]
 async fn execute_task(agent: &AgentHandle, frame_id: FrameId, task: &VerdictTask, config: &PoolConfig) -> Result<VerdictTaskResult, PoolError> {
     let start = Instant::now();
 
