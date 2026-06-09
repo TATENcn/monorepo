@@ -4,3 +4,6 @@
 # Output files
 target/
 node_modules/
+
+# Python venv
+.venv/
