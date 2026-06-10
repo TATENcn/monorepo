@@ -66,6 +66,7 @@ impl IntoResponse for AppError {
             PoolError::QueueFull => (StatusCode::SERVICE_UNAVAILABLE, self.0.to_string()),
             PoolError::MaxRetriesExceeded { .. } => (StatusCode::SERVICE_UNAVAILABLE, self.0.to_string()),
             PoolError::AgentUnavailable => (StatusCode::SERVICE_UNAVAILABLE, self.0.to_string()),
+            PoolError::ShuttingDown => (StatusCode::SERVICE_UNAVAILABLE, self.0.to_string()),
             PoolError::TaskTimeout(_) => (StatusCode::GATEWAY_TIMEOUT, self.0.to_string()),
             _ => (StatusCode::INTERNAL_SERVER_ERROR, self.0.to_string()),
         };

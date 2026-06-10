@@ -16,7 +16,7 @@ use tokio::{
     net::UnixStream,
     sync::{Mutex, Notify, RwLock, mpsc, oneshot},
     task::JoinSet,
-    time::{interval, timeout},
+    time::{self, interval, timeout},
 };
 use tracing::{debug, error, info, warn};
 
@@ -65,6 +65,8 @@ pub enum PoolError {
     Provision(#[from] ProvisionError),
     #[error("agent {agent_id} is busy with active tasks")]
     AgentBusy { agent_id: String },
+    #[error("pool is shutting down")]
+    ShuttingDown,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -104,6 +106,7 @@ pub struct AgentPool {
     next_frame_id: AtomicU64,
     task_signal_tx: mpsc::UnboundedSender<()>,
     agent_available: Arc<Notify>,
+    shutting_down: AtomicBool,
 }
 
 impl AgentPool {
@@ -122,6 +125,7 @@ impl AgentPool {
             next_frame_id: AtomicU64::new(1),
             task_signal_tx: task_signal_tx.clone(),
             agent_available: agent_available.clone(),
+            shutting_down: AtomicBool::new(false),
         };
 
         tokio::spawn(dispatch_loop(
@@ -147,6 +151,10 @@ impl AgentPool {
 
     #[tracing::instrument(skip(self, task), fields(frame_id))]
     pub async fn submit(&self, task: VerdictTask) -> Result<VerdictTaskResult, PoolError> {
+        if self.shutting_down.load(Ordering::SeqCst) {
+            return Err(PoolError::ShuttingDown);
+        }
+
         let frame_id = self.next_frame_id.fetch_add(1, Ordering::SeqCst);
         tracing::Span::current().record("frame_id", frame_id);
 
@@ -275,6 +283,83 @@ impl AgentPool {
             .filter(|a| a.healthy.load(Ordering::Relaxed) && !a.shutting_down.load(Ordering::Relaxed))
             .min_by_key(|a| a.active_tasks.load(Ordering::Relaxed))
             .cloned()
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn shutdown(&self, drain_timeout: Duration) -> Result<(), PoolError> {
+        info!("initiating pool shutdown");
+
+        self.shutting_down.store(true, Ordering::SeqCst);
+
+        let mut queue = self.task_queue.lock().await;
+        let rejected = queue.len();
+        while let Some(task) = queue.pop_front() {
+            let _ = task.result_tx.send(Err(PoolError::ShuttingDown));
+        }
+        drop(queue);
+        if rejected > 0 {
+            info!(rejected, "rejected queued tasks during shutdown");
+        }
+
+        let agent_ids: Vec<String> = {
+            let agents = self.agents.read().await;
+            for a in agents.iter() {
+                a.shutting_down.store(true, Ordering::Relaxed);
+            }
+            agents.iter().map(|a| a.id.clone()).collect()
+        };
+        info!(agent_count = agent_ids.len(), "marked agents for shutdown");
+
+        let start = Instant::now();
+        loop {
+            let metrics = self.metrics().await;
+            if metrics.active_tasks == 0 {
+                break;
+            }
+            if start.elapsed() >= drain_timeout {
+                warn!(
+                    active_tasks = metrics.active_tasks,
+                    timeout_secs = drain_timeout.as_secs(),
+                    "drain timeout reached, forcing shutdown"
+                );
+
+                break;
+            }
+            time::sleep(Duration::from_millis(100)).await;
+        }
+
+        info!("destroying agents");
+        {
+            let mut guard = self.agents.write().await;
+            guard.clear();
+        }
+
+        destroy_agents_parallel(self.provisioner.clone(), agent_ids, "shutdown".into()).await;
+
+        info!("pool shutdown complete");
+        Ok(())
+    }
+}
+
+async fn destroy_agents_parallel(provisioner: Arc<ContainerdProvisioner>, agent_ids: Vec<String>, context: String) {
+    if agent_ids.is_empty() {
+        return;
+    }
+    let mut join_set = JoinSet::new();
+    for id in agent_ids {
+        let provisioner = provisioner.clone();
+        let context = context.clone();
+        join_set.spawn(async move {
+            match provisioner.destroy(&id).await {
+                Err(e) => error!(agent_id = %id, error = %e, "failed to destroy agent ({context})"),
+                Ok(()) => info!(agent_id = %id, "agent destroyed ({context})"),
+            }
+        });
+    }
+    while let Some(result) = join_set.join_next().await {
+        if let Err(e) = result {
+            error!(error = %e, "destroy task panicked ({context})");
+        }
     }
 }
 
@@ -475,21 +560,7 @@ async fn drain_loop(agents: Arc<RwLock<Vec<AgentHandle>>>, provisioner: Arc<Cont
             guard.retain(|a| !candidates.iter().any(|c| c.id == a.id));
         }
 
-        let mut join_set = JoinSet::new();
-        for agent in candidates {
-            let provisioner = provisioner.clone();
-            join_set.spawn(async move {
-                match provisioner.destroy(&agent.id).await {
-                    Err(e) => error!(agent_id = %agent.id, error = %e, "failed to destroy agent in drain loop"),
-                    Ok(()) => info!(agent_id = %agent.id, "agent destroyed in drain loop"),
-                }
-            });
-        }
-
-        while let Some(result) = join_set.join_next().await {
-            if let Err(e) = result {
-                error!(error = %e, "drain task panicked");
-            }
-        }
+        let ids: Vec<String> = candidates.iter().map(|c| c.id.clone()).collect();
+        destroy_agents_parallel(provisioner.clone(), ids, "drain".into()).await;
     }
 }
