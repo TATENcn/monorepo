@@ -4,6 +4,7 @@ use shared::{
     protocol::{receive, send},
 };
 use tokio::net::UnixListener;
+use tokio::task::JoinSet;
 use tracing::{debug, error, info};
 
 #[tokio::main]
@@ -11,17 +12,18 @@ async fn main() -> Result<(), AgentError> {
     tracing_subscriber::fmt::init();
 
     let listener = UnixListener::bind("/run/judge-core/agent.sock")?;
+    let mut tasks = JoinSet::new();
 
     loop {
         let (mut stream, _addr) = tokio::select! {
             result = listener.accept() => result?,
             _ = tokio::signal::ctrl_c() => {
-                info!("shutting down");
+                info!("shutdown signal received, draining tasks");
                 break;
             }
         };
 
-        tokio::spawn(async move {
+        tasks.spawn(async move {
             let result = async {
                 let (id, task) = match receive::<VerdictTask, _>(&mut stream).await? {
                     Some(pair) => pair,
@@ -52,5 +54,12 @@ async fn main() -> Result<(), AgentError> {
         });
     }
 
+    while let Some(result) = tasks.join_next().await {
+        if let Err(e) = result {
+            error!(error = %e, "task panicked during drain");
+        }
+    }
+
+    info!("agent shut down");
     Ok(())
 }
