@@ -211,7 +211,22 @@ impl AgentPool {
 
         for id in ids {
             let socket_path = PathBuf::from("/run/judge-core/agents").join(&id).join("agent.sock");
-            self.add_agent(id, socket_path).await;
+
+            let is_alive = timeout(Duration::from_secs(1), async {
+                let mut stream = UnixStream::connect(&socket_path).await?;
+                protocol::send_heartbeat(&mut stream).await?;
+                Ok::<(), PoolError>(())
+            })
+            .await
+            .map(|r| r.is_ok())
+            .unwrap_or(false);
+
+            if is_alive {
+                self.add_agent(id, socket_path).await;
+            } else {
+                info!(agent_id = %id, "discovered agent is unreachable, destroying");
+                let _ = self.provisioner.destroy(&id).await;
+            }
         }
 
         Ok(())
