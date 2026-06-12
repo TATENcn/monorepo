@@ -36,30 +36,68 @@ impl Verdict for Cpp {
     #[instrument(skip(self, source), fields(source_len = source.len()))]
     async fn compile(&self, source: &str) -> Result<super::CompileResult, super::VerdictError> {
         let source_path = self.work_dir.join("source.cpp");
+        let object_path = self.work_dir.join("source.o");
 
-        debug!(source_len = source.len(), "writing source file");
+        debug!("writing source file");
         fs::write(&source_path, source).await?;
 
-        trace!(source = truncate_str(source, 1024), "source content");
-
-        let mut cmd = process::Command::new("ccache");
-        cmd.arg("g++")
+        let mut cc = process::Command::new("ccache");
+        cc.arg("g++")
             .arg("-std=c++23")
             .arg("-w")
+            .arg("-c")
             .arg(source_path.display().to_string())
             .arg("-o")
-            .arg("executable")
+            .arg(object_path.display().to_string())
             .current_dir(&self.work_dir)
+            .env("CCACHE_NOHASHDIR", "1")
+            .env("CCACHE_BASEDIR", self.work_dir.display().to_string())
+            .env("CCACHE_SLOPPINESS", "time_macros,locale,include_file_mtime,include_file_ctime")
+            .env("CCACHE_COMPILERCHECK", "content")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
         // TODO: Apply resource limits
 
-        debug!("spawning g++ process");
-        let mut child = cmd.spawn()?;
+        // compile to object file
+        debug!("spawning g++ -c via ccache");
+        let mut child = cc.spawn()?;
         let result = timeout(Duration::from_secs(10), child.wait()).await;
         match result {
+            Ok(status) => {
+                let status = status?;
+                if !status.success() {
+                    let mut message = String::new();
+                    if let Some(mut stderr) = child.stderr.take() {
+                        stderr.read_to_string(&mut message).await?;
+                    }
+                    info!(message_len = message.len(), "compilation error");
+                    return Ok(super::CompileResult::CompilationError { message });
+                }
+            }
+            Err(_) => {
+                child.kill().await?;
+                info!("compilation timeout");
+                return Ok(super::CompileResult::Timeout);
+            }
+        }
+
+        // link object file to executable
+        let exe_path = self.work_dir.join("executable");
+
+        let mut ld = process::Command::new("g++");
+        ld.arg(object_path.display().to_string())
+            .arg("-o")
+            .arg(exe_path.display().to_string())
+            .current_dir(&self.work_dir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        debug!("spawning g++ link step");
+        let mut child = ld.spawn()?;
+        match timeout(Duration::from_secs(5), child.wait()).await {
             Ok(status) => {
                 let status = status?;
                 if status.success() {
@@ -70,13 +108,13 @@ impl Verdict for Cpp {
                     if let Some(mut stderr) = child.stderr.take() {
                         stderr.read_to_string(&mut message).await?;
                     }
-                    info!(message_len = message.len(), "compilation error");
+                    info!(message_len = message.len(), "link error");
                     Ok(super::CompileResult::CompilationError { message })
                 }
             }
             Err(_) => {
                 child.kill().await?;
-                info!("compilation timeout");
+                info!("link timeout");
                 Ok(super::CompileResult::Timeout)
             }
         }
