@@ -4,12 +4,10 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use futures::StreamExt;
-use futures::stream::FuturesUnordered;
 use shared::models::{Case, ResourcesLimit, ResourcesUsage, VerdictTask, VerdictTaskResult};
 use tokio::io;
-use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, instrument, trace};
+use tokio::task::JoinSet;
+use tracing::{debug, error, info, instrument};
 
 pub enum CompileResult {
     Success,
@@ -35,8 +33,6 @@ pub trait Verdict: Sized + Send + Sync {
 pub enum VerdictError {
     #[error(transparent)]
     Io(#[from] io::Error),
-    #[error("cancelled")]
-    Cancelled,
     #[error(transparent)]
     Cgroup(#[from] cgroups_rs::fs::error::Error),
 }
@@ -82,31 +78,11 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
         }
     }
 
+    const BATCH_MAX: usize = 8;
+
     let judge = Arc::new(judge);
-    let cancel = CancellationToken::new();
-    let mut futures = FuturesUnordered::new();
 
     static VERDICT_ID: AtomicU64 = AtomicU64::new(0);
-
-    for (case_idx, case) in task.cases.into_iter().enumerate() {
-        let j = Arc::clone(&judge);
-        let c = cancel.clone();
-        let limits = task.limits.clone();
-        let verdict_id = VERDICT_ID.fetch_add(1, Ordering::Relaxed);
-
-        info!(case_idx, input_len = case.input.len(), "running case");
-
-        futures.push(tokio::spawn(async move {
-            tokio::select! {
-                biased;
-                _ = c.cancelled() => {
-                    trace!(case_idx, "case cancelled");
-                    Err(VerdictError::Cancelled)
-                }
-                res = j.verdict(case, &limits, verdict_id) => res,
-            }
-        }));
-    }
 
     let mut max_usage = ResourcesUsage {
         cpu_time_ms: 0,
@@ -114,43 +90,59 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
         memory_bytes: 0,
     };
 
-    while let Some(result) = futures.next().await {
-        let result = match result {
-            Ok(r) => r,
-            Err(e) => {
-                error!(error = %e, "verdict task panicked");
-                cancel.cancel();
-                drop(futures);
-                let _ = judge.cleanup().await;
-                return VerdictTaskResult::Internal { message: e.to_string() };
-            }
-        };
+    let mut cases = task.cases;
+    let limits = task.limits;
+    let mut case_idx: usize = 0;
 
-        let verdict = match result {
-            Ok(v) => v,
-            Err(VerdictError::Cancelled) => continue,
-            Err(e) => {
-                error!(error = %e, "verdict error");
-                cancel.cancel();
-                drop(futures);
-                let _ = judge.cleanup().await;
-                return VerdictTaskResult::Internal { message: e.to_string() };
-            }
-        };
+    while !cases.is_empty() {
+        let batch_size = BATCH_MAX.min(cases.len());
+        let batch: Vec<_> = cases.drain(..batch_size).collect();
+        let mut join_set = JoinSet::new();
 
-        debug!(result = ?verdict, "case completed");
+        for case in batch {
+            let j = Arc::clone(&judge);
+            let limits = limits.clone();
+            let verdict_id = VERDICT_ID.fetch_add(1, Ordering::Relaxed);
+            let idx = case_idx;
 
-        match verdict {
-            VerdictTaskResult::Accepted { usage } => {
-                max_usage.cpu_time_ms = max_usage.cpu_time_ms.max(usage.cpu_time_ms);
-                max_usage.wall_time_ms = max_usage.wall_time_ms.max(usage.wall_time_ms);
-                max_usage.memory_bytes = max_usage.memory_bytes.max(usage.memory_bytes);
-            }
-            other => {
-                cancel.cancel();
-                drop(futures);
-                let _ = judge.cleanup().await;
-                return other;
+            info!(case_idx = idx, input_len = case.input.len(), "running case");
+
+            join_set.spawn(async move { j.verdict(case, &limits, verdict_id).await });
+
+            case_idx += 1;
+        }
+
+        while let Some(result) = join_set.join_next().await {
+            match result {
+                Ok(Ok(verdict)) => {
+                    debug!(result = ?verdict, "case completed");
+
+                    match verdict {
+                        VerdictTaskResult::Accepted { usage } => {
+                            max_usage.cpu_time_ms = max_usage.cpu_time_ms.max(usage.cpu_time_ms);
+                            max_usage.wall_time_ms = max_usage.wall_time_ms.max(usage.wall_time_ms);
+                            max_usage.memory_bytes = max_usage.memory_bytes.max(usage.memory_bytes);
+                        }
+                        other => {
+                            join_set.abort_all();
+                            let _ = judge.cleanup().await;
+                            return other;
+                        }
+                    }
+                }
+                Ok(Err(e)) => {
+                    error!(error = %e, "verdict error");
+                    join_set.abort_all();
+                    let _ = judge.cleanup().await;
+                    return VerdictTaskResult::Internal { message: e.to_string() };
+                }
+                Err(e) if e.is_cancelled() => continue,
+                Err(e) => {
+                    error!(error = %e, "verdict task panicked");
+                    join_set.abort_all();
+                    let _ = judge.cleanup().await;
+                    return VerdictTaskResult::Internal { message: e.to_string() };
+                }
             }
         }
     }
