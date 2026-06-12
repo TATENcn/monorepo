@@ -91,7 +91,7 @@ impl AutoScaler {
         };
 
         let needed_capacity = total_load + provision_buffer;
-        let needed_agents = (needed_capacity + capacity_per_agent - 1) / capacity_per_agent;
+        let needed_agents = needed_capacity.div_ceil(capacity_per_agent);
         let need = needed_agents.saturating_sub(metrics.agent_count);
 
         need.min(config.max_scale_up_batch).min(config.max_agents.saturating_sub(metrics.agent_count))
