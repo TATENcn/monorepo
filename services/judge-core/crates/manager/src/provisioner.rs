@@ -22,7 +22,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::OnceCell;
 use tokio::time::{Duration, sleep};
 use tokio::{fs, io};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use uuid::Uuid;
 
 const NAMESPACE: &str = "judge-core";
@@ -159,20 +159,20 @@ impl ContainerdProvisioner {
 
         let req = KillRequest {
             container_id: id.to_string(),
-            signal: libc::SIGKILL as u32,
+            signal: libc::SIGINT as u32,
             ..Default::default()
         };
         let req = with_namespace!(req, NAMESPACE);
 
         if let Err(e) = tasks_client.kill(req).await {
-            warn!(agent_id = id, error = %e, "failed to kill task (may already be stopped)");
+            debug!(agent_id = id, error = %e, "failed to kill task (may already be stopped)");
         }
 
         let req = DeleteTaskRequest { container_id: id.to_string() };
         let req = with_namespace!(req, NAMESPACE);
 
         if let Err(e) = tasks_client.delete(req).await {
-            warn!(agent_id = id, error = %e, "failed to delete task (may already be deleted)");
+            debug!(agent_id = id, error = %e, "failed to delete task (may already be deleted)");
         }
 
         let mut containers_client = ContainersClient::new(self.channel.clone());
@@ -192,12 +192,12 @@ impl ContainerdProvisioner {
             NAMESPACE
         );
         if let Err(e) = snapshots_client.remove(remove_req).await {
-            warn!(agent_id = id, error = %e, "failed to remove snapshot (may already be removed)");
+            debug!(agent_id = id, error = %e, "failed to remove snapshot (may already be removed)");
         }
 
         let socket_dir = self.socket_base.join(id);
         if let Err(e) = fs::remove_dir_all(&socket_dir).await {
-            warn!(agent_id = id, dir = %socket_dir.display(), error = %e, "failed to remove socket directory");
+            debug!(agent_id = id, dir = %socket_dir.display(), error = %e, "failed to remove socket directory");
         }
 
         info!(agent_id = id, "agent destroyed");
