@@ -45,6 +45,7 @@ impl Verdict for Cpp {
         cc.arg("g++")
             .arg("-std=c++23")
             .arg("-w")
+            .arg("-O2")
             .arg("-c")
             .arg(source_path.display().to_string())
             .arg("-o")
