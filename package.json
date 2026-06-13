@@ -6,7 +6,8 @@
 		"typescript": "^6.0.3"
 	},
 	"workspaces": [
-		"services/*"
+		"services/*",
+		"packages/*"
 	],
 	"packageManager": "bun@1.3.14"
 }
