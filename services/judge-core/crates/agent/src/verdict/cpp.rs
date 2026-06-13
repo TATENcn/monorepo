@@ -51,6 +51,7 @@ impl Verdict for Cpp {
             .arg("-o")
             .arg(object_path.display().to_string())
             .current_dir(&self.work_dir)
+            .env("CCACHE_DIR", "/tmp/ccache")
             .env("CCACHE_NOHASHDIR", "1")
             .env("CCACHE_BASEDIR", self.work_dir.display().to_string())
             .env("CCACHE_SLOPPINESS", "time_macros,locale,include_file_mtime,include_file_ctime")
