@@ -12,7 +12,8 @@ use tower_http::trace::TraceLayer;
 use tracing::error;
 
 use crate::pool::{AgentPool, PoolError, PoolMetrics};
-use shared::models::{VerdictTask, VerdictTaskResult};
+use shared::models::VerdictTask;
+use shared::models::http::{ErrorBody, ErrorResponse, SuccessResponse, VerdictResponse};
 
 pub fn create_router(pool: Arc<AgentPool>) -> Router {
     Router::new()
@@ -30,26 +31,29 @@ struct AcceptablezResponse {
     metrics: PoolMetrics,
 }
 
-#[derive(Serialize)]
-struct ErrorResponse {
-    error: String,
-    message: String,
-}
-
-async fn metricsz_handler(State(pool): State<Arc<AgentPool>>) -> Result<Json<PoolMetrics>, AppError> {
+async fn metricsz_handler(State(pool): State<Arc<AgentPool>>) -> Result<Json<SuccessResponse<PoolMetrics>>, AppError> {
     let metrics = pool.metrics().await;
-    Ok(Json(metrics))
+    Ok(Json(SuccessResponse {
+        data: metrics,
+        message: "metrics retrieved",
+    }))
 }
 
-async fn acceptablez_handler(State(pool): State<Arc<AgentPool>>) -> Result<Json<AcceptablezResponse>, AppError> {
+async fn acceptablez_handler(State(pool): State<Arc<AgentPool>>) -> Result<Json<SuccessResponse<AcceptablezResponse>>, AppError> {
     let metrics = pool.metrics().await;
     let acceptable = metrics.queue_size < 1000 && metrics.healthy_agent_count > 0;
-    Ok(Json(AcceptablezResponse { acceptable, metrics }))
+    Ok(Json(SuccessResponse {
+        data: AcceptablezResponse { acceptable, metrics },
+        message: "acceptable status retrieved",
+    }))
 }
 
-async fn task_handler(State(pool): State<Arc<AgentPool>>, Json(task): Json<VerdictTask>) -> Result<Json<VerdictTaskResult>, AppError> {
+async fn task_handler(State(pool): State<Arc<AgentPool>>, Json(task): Json<VerdictTask>) -> Result<Json<SuccessResponse<VerdictResponse>>, AppError> {
     let result = pool.submit(task).await?;
-    Ok(Json(result))
+    Ok(Json(SuccessResponse {
+        data: result.into(),
+        message: "task completed",
+    }))
 }
 
 struct AppError(PoolError);
@@ -62,19 +66,23 @@ impl From<PoolError> for AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
-        let (status, message) = match &self.0 {
-            PoolError::QueueFull => (StatusCode::SERVICE_UNAVAILABLE, self.0.to_string()),
-            PoolError::MaxRetriesExceeded { .. } => (StatusCode::SERVICE_UNAVAILABLE, self.0.to_string()),
-            PoolError::AgentUnavailable => (StatusCode::SERVICE_UNAVAILABLE, self.0.to_string()),
-            PoolError::ShuttingDown => (StatusCode::SERVICE_UNAVAILABLE, self.0.to_string()),
-            PoolError::TaskTimeout(_) => (StatusCode::GATEWAY_TIMEOUT, self.0.to_string()),
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, self.0.to_string()),
+        let (status, code) = match &self.0 {
+            PoolError::QueueFull => (StatusCode::SERVICE_UNAVAILABLE, "QUEUE_FULL"),
+            PoolError::MaxRetriesExceeded { .. } => (StatusCode::SERVICE_UNAVAILABLE, "MAX_RETRIES_EXCEEDED"),
+            PoolError::AgentUnavailable => (StatusCode::SERVICE_UNAVAILABLE, "AGENT_UNAVAILABLE"),
+            PoolError::ShuttingDown => (StatusCode::SERVICE_UNAVAILABLE, "SHUTTING_DOWN"),
+            PoolError::TaskTimeout(_) => (StatusCode::GATEWAY_TIMEOUT, "TASK_TIMEOUT"),
+            PoolError::ConnectionFailed(_) => (StatusCode::INTERNAL_SERVER_ERROR, "CONNECTION_FAILED"),
+            PoolError::Protocol(_) => (StatusCode::INTERNAL_SERVER_ERROR, "PROTOCOL_ERROR"),
+            PoolError::Provision(_) => (StatusCode::INTERNAL_SERVER_ERROR, "PROVISION_ERROR"),
+            PoolError::AgentBusy { .. } => (StatusCode::INTERNAL_SERVER_ERROR, "AGENT_BUSY"),
         };
+        let message = self.0.to_string();
 
         error!(error = %self.0, status = %status, "request failed");
 
         let body = Json(ErrorResponse {
-            error: format!("{:?}", self.0),
+            error: ErrorBody { code },
             message,
         });
 
