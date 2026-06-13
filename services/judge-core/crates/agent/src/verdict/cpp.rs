@@ -89,7 +89,8 @@ impl Verdict for Cpp {
         let exe_path = self.work_dir.join("executable");
 
         let mut ld = process::Command::new("g++");
-        ld.arg(object_path.display().to_string())
+        ld.arg("-static")
+            .arg(object_path.display().to_string())
             .arg("-o")
             .arg(exe_path.display().to_string())
             .current_dir(&self.work_dir)
@@ -160,8 +161,13 @@ impl Verdict for Cpp {
         cg.add_task(child_pid as u64)?;
 
         // Write stdin input
+        // Child may exit before all input is consumed, causing EPIPE
         if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(case.input.as_bytes()).await?;
+            if let Err(e) = stdin.write_all(case.input.as_bytes()).await {
+                if e.kind() != io::ErrorKind::BrokenPipe {
+                    return Err(e.into());
+                }
+            }
         }
         trace!(input = truncate_str(&case.input, 1024), "stdin written");
 

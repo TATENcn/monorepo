@@ -46,6 +46,7 @@ fn cpp_seccomp_filter() -> Result<ScmpFilterContext, SeccompError> {
         "dup2",
         "pipe",
         "pipe2",
+        "statx",
         // REVIEW: we need it for execve user program
         "execve",
     ];
