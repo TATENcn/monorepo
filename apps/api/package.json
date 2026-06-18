@@ -3,6 +3,10 @@
 	"type": "module",
 	"private": true,
 	"dependencies": {
+		"drizzle-orm": "^0.45.2",
 		"elysia": "^1.4.29"
+	},
+	"devDependencies": {
+		"drizzle-kit": "^0.31.10"
 	}
 }
