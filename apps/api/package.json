@@ -2,7 +2,12 @@
 	"name": "api",
 	"type": "module",
 	"private": true,
+	"scripts": {
+		"generate:better-auth": "bunx --bun auth generate --config=src/modules/auth/service.ts --output=src/modules/db/auth.schema.ts --yes"
+	},
 	"dependencies": {
+		"@better-auth/drizzle-adapter": "^1.6.19",
+		"better-auth": "^1.6.19",
 		"drizzle-orm": "^0.45.2",
 		"elysia": "^1.4.29"
 	},

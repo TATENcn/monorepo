@@ -1,3 +1,4 @@
 import { Elysia } from "elysia";
+import { authRoutePlugin } from "./modules/auth";
 
-new Elysia().listen({ port: 3080 });
+new Elysia().use(authRoutePlugin).listen({ port: 3080 });
