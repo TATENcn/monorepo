@@ -8,10 +8,10 @@
 	"dependencies": {
 		"@better-auth/drizzle-adapter": "^1.6.19",
 		"better-auth": "^1.6.19",
-		"drizzle-orm": "^0.45.2",
+		"drizzle-orm": "^1.0.0-beta.22",
 		"elysia": "^1.4.29"
 	},
 	"devDependencies": {
-		"drizzle-kit": "^0.31.10"
+		"drizzle-kit": "^1.0.0-beta.22"
 	}
 }
