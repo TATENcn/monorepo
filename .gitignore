@@ -7,3 +7,6 @@ node_modules/
 
 # Python venv
 .venv/
+
+# Intellij IDE
+.idea/
