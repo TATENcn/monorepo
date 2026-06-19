@@ -5,7 +5,7 @@ import type {
 	SuccessResponse,
 	VerdictResponse,
 	VerdictTask,
-} from "./types";
+} from "models/judge-core";
 
 export class JudgeCoreError extends Error {
 	constructor(
