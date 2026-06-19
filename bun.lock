@@ -39,6 +39,7 @@
       "name": "submission-processor",
       "dependencies": {
         "amqplib": "^2.0.1",
+        "judge-core-sdk": "workspace:",
       },
     },
   },
