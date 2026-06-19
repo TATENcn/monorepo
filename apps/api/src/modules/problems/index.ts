@@ -18,7 +18,7 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 	.use(databasePlugin)
 	.use(authPlugin)
 	.get(
-		"/problems",
+		"/",
 		async ({ query: { limit = 10, offset = 0, query: searchQuery, difficulty, tagId }, db }) => {
 			const conditions = [isNull(problems.deletedAt)];
 			if (searchQuery) conditions.push(like(problems.title, `%${searchQuery}%`));
@@ -69,7 +69,7 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 		},
 	)
 	.get(
-		"/problems/stat",
+		"/stat",
 		async ({ db }) => {
 			const [result] = await db.select({ total: count() }).from(problems).where(isNull(problems.deletedAt));
 			if (!result) throw new Error("count returned no rows");
@@ -85,7 +85,7 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 		},
 	)
 	.get(
-		"/problems/:id/test-cases",
+		"/:id/test-cases",
 		async ({ db, params: { id: problemId }, user, status }) => {
 			const [problem] = await db
 				.select()
@@ -119,7 +119,7 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 		},
 	)
 	.get(
-		"/problems/:id",
+		"/:id",
 		async ({ db, params: { id }, status }) => {
 			const [problem] = await db
 				.select()
@@ -158,7 +158,7 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 		},
 	)
 	.patch(
-		"/problems/:id",
+		"/:id",
 		async ({ db, params: { id: problemId }, status, body, user: { id: userId } }) => {
 			const [problem] = await db
 				.select()
@@ -204,7 +204,7 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 		},
 	)
 	.delete(
-		"/problems/:id",
+		"/:id",
 		async ({ db, params: { id: problemId }, status, user: { id: userId } }) => {
 			const [problem] = await db
 				.select()
@@ -232,7 +232,7 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 		},
 	)
 	.post(
-		"/problems",
+		"/",
 		async ({ db, body, user: { id: userId }, status }) => {
 			const [created] = await db
 				.insert(problems)
@@ -268,7 +268,7 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 		},
 	)
 	.put(
-		"/problems/:id/test-cases",
+		"/:id/test-cases",
 		async ({ db, params: { id: problemId }, body, user: { id: userId }, status }) => {
 			const [problem] = await db
 				.select()

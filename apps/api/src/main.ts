@@ -6,5 +6,5 @@ import { problemsPlugin } from "./modules/problems";
 new Elysia()
 	.use(authRoutePlugin)
 	.use(openapi({ provider: "scalar" }))
-	.use(problemsPlugin)
+	.group("/problems", (app) => app.use(problemsPlugin))
 	.listen({ port: 3080 });
