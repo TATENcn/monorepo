@@ -2,10 +2,17 @@ import { and, count, eq, inArray, isNull, like } from "drizzle-orm";
 import Elysia, { t } from "elysia";
 import { authPlugin } from "../auth";
 import { databasePlugin } from "../db";
-import { difficultyEnumLiteral, problems, problemTags, testCases, testCaseTypeEnumLiteral } from "../db/schema";
-
-const difficultyTypeBoxEnum = t.Enum(Object.fromEntries(difficultyEnumLiteral.map((v) => [v, v])));
-const testCaseTypeBoxEnum = t.Enum(Object.fromEntries(testCaseTypeEnumLiteral.map((v) => [v, v])));
+import { problems, problemTags, testCases } from "../db/schema";
+import {
+	createProblemBody,
+	difficultyEnum,
+	problemDetailSchema,
+	problemIdParams,
+	problemListItemSchema,
+	testCaseSchema,
+	testCasesBody,
+	updateProblemBody,
+} from "./model";
 
 export const problemsPlugin = new Elysia({ name: "problems" })
 	.use(databasePlugin)
@@ -54,17 +61,10 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 				limit: t.Optional(t.Numeric({ maximum: 50, minimum: 5, default: 10 })),
 				offset: t.Optional(t.Numeric({ minimum: 0, default: 0 })),
 				query: t.Optional(t.String({ maxLength: 255, default: "" })),
-				difficulty: t.Optional(difficultyTypeBoxEnum),
+				difficulty: t.Optional(difficultyEnum),
 				tagId: t.Optional(t.String({ format: "uuid" })),
 			}),
-			response: t.Array(
-				t.Object({
-					id: t.String({ format: "uuid" }),
-					title: t.String(),
-					difficulty: difficultyTypeBoxEnum,
-					tags: t.Array(t.String({ format: "uuid" })),
-				}),
-			),
+			response: t.Array(problemListItemSchema),
 			detail: { description: "Get problem lists", tags: ["Problems"] },
 		},
 	)
@@ -110,18 +110,9 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 		},
 		{
 			auth: true,
-			params: t.Object({
-				id: t.String({ format: "uuid" }),
-			}),
+			params: problemIdParams,
 			response: {
-				200: t.Array(
-					t.Object({
-						id: t.String({ format: "uuid" }),
-						input: t.String(),
-						output: t.String(),
-						type: testCaseTypeBoxEnum,
-					}),
-				),
+				200: t.Array(testCaseSchema),
 				404: t.Undefined(),
 			},
 			detail: { description: "Get problem test cases (example cases returned if not authorized)", tags: ["Problems"] },
@@ -158,28 +149,9 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 			};
 		},
 		{
-			params: t.Object({
-				id: t.String({ format: "uuid" }),
-			}),
+			params: problemIdParams,
 			response: {
-				200: t.Object({
-					id: t.String({ format: "uuid" }),
-					authorId: t.String({ format: "uuid" }),
-					title: t.String(),
-					description: t.String(),
-					difficulty: difficultyTypeBoxEnum,
-					tags: t.Array(t.String({ format: "uuid" })),
-
-					createdAt: t.String({ format: "date-time" }),
-					updatedAt: t.String({ format: "date-time" }),
-
-					limit: t.Object({
-						cpuTimeMs: t.Integer(),
-						wallTimeMs: t.Integer(),
-						memoryBytes: t.Integer(),
-						outputBytes: t.Integer(),
-					}),
-				}),
+				200: problemDetailSchema,
 				404: t.Undefined(),
 			},
 			detail: { description: "Get problem details", tags: ["Problems"] },
@@ -222,27 +194,12 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 		},
 		{
 			auth: true,
-			body: t.Object({
-				title: t.Optional(t.String()),
-				description: t.Optional(t.String()),
-				difficulty: t.Optional(difficultyTypeBoxEnum),
-				limit: t.Optional(
-					t.Object({
-						cpuTimeMs: t.Optional(t.Integer()),
-						wallTimeMs: t.Optional(t.Integer()),
-						memoryBytes: t.Optional(t.Integer()),
-						outputBytes: t.Optional(t.Integer()),
-					}),
-				),
-				tags: t.Optional(t.Array(t.String({ format: "uuid" }))),
-			}),
+			body: updateProblemBody,
 			response: {
 				204: t.Undefined(),
 				404: t.Undefined(),
 			},
-			params: t.Object({
-				id: t.String({ format: "uuid" }),
-			}),
+			params: problemIdParams,
 			detail: { description: "Update problem fields", tags: ["Problems"] },
 		},
 	)
@@ -270,9 +227,7 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 				204: t.Undefined(),
 				404: t.Undefined(),
 			},
-			params: t.Object({
-				id: t.String({ format: "uuid" }),
-			}),
+			params: problemIdParams,
 			detail: { description: "Delete a problem", tags: ["Problems"] },
 		},
 	)
@@ -303,18 +258,7 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 		},
 		{
 			auth: true,
-			body: t.Object({
-				title: t.String(),
-				description: t.String(),
-				difficulty: difficultyTypeBoxEnum,
-				limit: t.Object({
-					cpuTimeMs: t.Integer(),
-					wallTimeMs: t.Integer(),
-					memoryBytes: t.Integer(),
-					outputBytes: t.Integer(),
-				}),
-				tags: t.Array(t.String({ format: "uuid" })),
-			}),
+			body: createProblemBody,
 			response: {
 				201: t.Object({
 					id: t.String({ format: "uuid" }),
@@ -352,18 +296,8 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 		},
 		{
 			auth: true,
-			params: t.Object({
-				id: t.String({ format: "uuid" }),
-			}),
-			body: t.Object({
-				cases: t.Array(
-					t.Object({
-						input: t.String(),
-						output: t.String(),
-						type: testCaseTypeBoxEnum,
-					}),
-				),
-			}),
+			params: problemIdParams,
+			body: testCasesBody,
 			response: {
 				204: t.Undefined(),
 				404: t.Undefined(),
