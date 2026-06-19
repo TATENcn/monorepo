@@ -48,7 +48,7 @@ export const problemTags = pgTable("problem_tags", {
 });
 
 export const testCases = pgTable("test_cases", {
-	id: uuid("id").primaryKey(),
+	id: uuid("id").primaryKey().defaultRandom(),
 	problemId: uuid("problem_id")
 		.notNull()
 		.references(() => problems.id),
