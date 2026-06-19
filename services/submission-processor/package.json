@@ -1,5 +1,8 @@
 {
 	"name": "submission-processor",
 	"type": "module",
-	"private": true
+	"private": true,
+	"dependencies": {
+		"amqplib": "^2.0.1"
+	}
 }
