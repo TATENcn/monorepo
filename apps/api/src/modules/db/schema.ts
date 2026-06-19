@@ -3,8 +3,10 @@ import type { BunSQLDatabase } from "drizzle-orm/bun-sql/postgres/driver";
 import { char, integer, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { user } from "./auth.schema";
 
-export const difficultyEnum = pgEnum("difficulty", ["入门", "普及-", "普及/提高-", "普及+/提高", "提高+/省选-", "省选/NOI-", "NOI/NOI+/CTSC"]);
-export const testCaseTypeEnum = pgEnum("test_case_type", ["example", "hidden"]);
+export const difficultyEnumLiteral = ["入门", "普及-", "普及/提高-", "普及+/提高", "提高+/省选-", "省选/NOI-", "NOI/NOI+/CTSC"] as const;
+export const testCaseTypeEnumLiteral = ["example", "hidden"] as const;
+export const difficultyEnum = pgEnum("difficulty", difficultyEnumLiteral);
+export const testCaseTypeEnum = pgEnum("test_case_type", testCaseTypeEnumLiteral);
 
 export const tags = pgTable("tags", {
 	id: uuid("id").primaryKey().defaultRandom(),
@@ -111,7 +113,7 @@ export const relations = defineRelations({ tags, problems, problemTags, testCase
 export type Database = BunSQLDatabase<typeof schema, typeof relations>;
 
 export const seedTags = async (database: Database) => {
-	const tagValues: Omit<typeof tags.$inferInsert, "id">[] = [];
-
-	await database.insert(tags).values(tagValues).onConflictDoNothing();
+	//	const tagValues: Omit<typeof tags.$inferInsert, "id">[] = [];
+	//
+	//	await database.insert(tags).values(tagValues).onConflictDoNothing();
 };
