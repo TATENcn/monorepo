@@ -24,6 +24,8 @@ await channel.prefetch(1);
 logger.info("configured rabbit mq");
 
 const client = new JudgeCoreClient(process.env.JUDGE_CORE_URL!);
+await client.getAcceptablez();
+logger.info("judge-core available");
 
 await channel.consume(
 	SUBMIT_QUEUE,
