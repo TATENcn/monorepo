@@ -6,6 +6,7 @@
 	"types": "./src/index.ts",
 	"exports": {
 		".": "./src/index.ts",
-		"./judge-core": "./src/judge-core.ts"
+		"./judge-core": "./src/judge-core.ts",
+		"./message": "./src/message.ts"
 	}
 }

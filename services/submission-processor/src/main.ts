@@ -1,5 +1,5 @@
-import type { VerdictTask } from "judge-core-sdk";
 import { JudgeCoreClient } from "judge-core-sdk";
+import type { SubmitMessage } from "models/message";
 import { pino } from "pino";
 import { initRabbitMq } from "utils";
 
@@ -17,18 +17,24 @@ await channel.consume(
 	async (msg) => {
 		if (!msg) return;
 
-		const task: VerdictTask = JSON.parse(msg.content.toString());
-		const result = await client.submitTask(task);
-
-		channel.publish(
-			config.EXCHANGE_NAME,
-			config.RESULT_ROUTE,
-			Buffer.from(JSON.stringify(result)),
+		const { submission_id, task }: SubmitMessage = JSON.parse(
+			msg.content.toString(),
 		);
 
-		logger.info("finished task");
+		try {
+			const { data: result } = await client.submitTask(task);
 
-		channel.ack(msg);
+			channel.publish(
+				config.EXCHANGE_NAME,
+				config.RESULT_ROUTE,
+				Buffer.from(JSON.stringify({ submission_id, result: result })),
+			);
+
+			channel.ack(msg);
+			logger.info({ submission_id }, "finished task");
+		} catch (err) {
+			logger.error({ err, submission_id }, "failed to process task");
+		}
 	},
-	{ noAck: true },
+	{ noAck: false },
 );
