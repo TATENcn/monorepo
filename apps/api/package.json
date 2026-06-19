@@ -10,7 +10,8 @@
 		"@elysia/openapi": "^1.4.15",
 		"better-auth": "^1.6.19",
 		"drizzle-orm": "^1.0.0-beta.22",
-		"elysia": "^1.4.29"
+		"elysia": "^1.4.29",
+		"judge-core-sdk": "workspace:"
 	},
 	"devDependencies": {
 		"drizzle-kit": "^1.0.0-beta.22"
