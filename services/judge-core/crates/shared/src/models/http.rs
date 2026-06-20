@@ -1,8 +1,8 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{Case, KilledReason, ResourcesUsage, VerdictTaskResult};
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(tag = "status")]
 pub enum VerdictResponse {
     #[serde(rename = "compilation_error")]
