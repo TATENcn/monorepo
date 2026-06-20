@@ -1,0 +1,12 @@
+[package]
+name = "standalone"
+edition.workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "signal"] }
+shared = { workspace = true }
+agent = { path = "../agent" }
+axum = "0.8.9"
+tower-http = { version = "0.6.11", features = ["trace"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
