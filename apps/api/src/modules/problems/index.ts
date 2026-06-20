@@ -39,6 +39,7 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 
 			const tagRows = await db
 				.select({
+					problemId: problemTags.problemId,
 					tagId: problemTags.tagId,
 				})
 				.from(problemTags)
@@ -53,7 +54,7 @@ export const problemsPlugin = new Elysia({ name: "problems" })
 				id: p.id,
 				title: p.title,
 				difficulty: p.difficulty,
-				tags: tagRows.map((t) => t.tagId),
+				tags: tagRows.filter((t) => t.problemId === p.id).map((t) => t.tagId),
 			}));
 		},
 		{
