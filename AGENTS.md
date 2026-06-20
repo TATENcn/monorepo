@@ -4,18 +4,21 @@
 
 ```
 root/
-  services/judge-core/   # Rust workspace
-    crates/
-      shared/            # models, binary protocol, socket helpers
-      agent/             # in-container: compiles & sandboxes user code
-      manager/           # on-host: HTTP API, containerd, agent pool
+  services/
+    judge-core/           # Rust workspace
+      crates/
+        shared/           # models, binary protocol, socket helpers
+        agent/            # in-container: compiles & sandboxes user code
+        manager/          # on-host: HTTP API, containerd, agent pool
+        standalone/       # agent over HTTP (no UDS, no containerd, no manager)
+    submission-processor/ # AMQP consumer, dispatches to judge-core
   apps/
-    api/                 # TypeScript backend
-    web/                 # frontend
-  packages/              # shared TypeScript packages
-    judge-core-sdk/      # HTTP client for judge-core API
-    models/              # shared TS types
-    utils/               # shared TS utilities
+    api/                  # TypeScript backend
+  packages/               # shared TypeScript packages
+    algorithm/            # algorithm
+    judge-core-sdk/       # HTTP client for judge-core API
+    models/               # shared TS types
+    utils/                # shared TS utilities
 ```
 
 - **Package manager**: `bun` (not npm).
@@ -31,6 +34,11 @@ bun install
 # Rust (from services/judge-core/)
 cargo build --release
 cargo build --release --bin manager   # Manager must run with root privileges
+cargo build --release --bin standalone # Agent over HTTP — for local dev & logic validation
+
+# Standalone (no containerd needed)
+cargo build --release --bin standalone
+./target/release/standalone    # → HTTP on 0.0.0.0:8000, POST /task with VerdictTask JSON
 
 # Agent container image
 fish scripts/build-agent.fish   # docker build → `ctr image import`
@@ -72,4 +80,6 @@ All configuration is hardcoded in `crates/manager/src/main.rs`. No automated tes
 | C++ compile + execute | `crates/agent/src/verdict/cpp.rs` |
 | seccomp whitelist | `crates/agent/src/limit/seccomp.rs` |
 | cgroups v2 | `crates/agent/src/limit/cgroup.rs` |
-| Agent Dockerfile | `crates/agent/Dockerfile` |
+| Standalone entrypoint | `crates/standalone/src/main.rs` |
+| Agent Dockerfile | `services/judge-core/Dockerfile.agent` |
+| Agent (standalone) Dockerfile | `services/judge-core/Dockerfile.agent.standalone` |
