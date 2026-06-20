@@ -1,0 +1,11 @@
+{
+	"name": "algorithm",
+	"type": "module",
+	"private": true,
+	"main": "./src/index.ts",
+	"types": "./src/index.ts",
+	"exports": {
+		".": "./src/index.ts",
+		"./rating": "./src/rating.ts"
+	}
+}
