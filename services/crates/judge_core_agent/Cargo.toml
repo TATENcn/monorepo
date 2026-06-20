@@ -1,0 +1,14 @@
+[package]
+name = "judge_core_agent"
+edition.workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "signal", "fs", "process", "time"] }
+judge_core_shared = { workspace = true }
+thiserror = { workspace = true }
+libseccomp = "0.4.0"
+libc = { workspace = true }
+cgroups-rs = "0.5.0"
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

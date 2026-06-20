@@ -1,0 +1,9 @@
+[package]
+name = "judge_core_shared"
+edition.workspace = true
+
+[dependencies]
+postcard = { workspace = true, features = ["alloc"] }
+serde = { workspace = true }
+tokio = { workspace = true, features = ["net", "io-util", "fs"] }
+thiserror = { workspace = true }
