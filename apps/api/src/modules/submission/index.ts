@@ -26,6 +26,7 @@ export const submissionPlugin = new Elysia({ name: "submission" })
 					channel.ack(msg);
 				} catch (err) {
 					console.error("failed to process verdict result:", err);
+					channel.nack(msg);
 				}
 			},
 			{ noAck: false },
