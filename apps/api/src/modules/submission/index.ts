@@ -5,7 +5,7 @@ import type { ResultMessage, SubmitMessage } from "models/message";
 import { authPlugin } from "../auth";
 import { databasePlugin } from "../db";
 import { acceptableLanguageEnumLiteral, problems, submissions, testCases } from "../db/schema";
-import { mqPlugin } from "./connect";
+import { mqPlugin } from "./amqp";
 
 const acceptableLanguageEnum = t.Enum(Object.fromEntries(acceptableLanguageEnumLiteral.map((v) => [v, v])));
 
