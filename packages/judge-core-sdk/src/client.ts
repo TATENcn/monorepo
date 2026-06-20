@@ -18,18 +18,30 @@ export class JudgeCoreError extends Error {
 	}
 }
 
+export interface JudgeCoreClientOptions {
+	baseUrl?: string;
+	usingStandalone?: boolean;
+}
+
 export class JudgeCoreClient {
 	private baseUrl: string;
+	private usingStandalone: boolean;
 
-	constructor(baseUrl = "http://0.0.0.0:8000") {
-		this.baseUrl = baseUrl.replace(/\/+$/, "");
+	constructor(options: JudgeCoreClientOptions = {}) {
+		this.baseUrl = (options.baseUrl ?? "http://0.0.0.0:8000").replace(
+			/\/+$/,
+			"",
+		);
+		this.usingStandalone = options.usingStandalone ?? false;
 	}
 
 	async getMetrics(): Promise<SuccessResponse<PoolMetrics>> {
+		this.assertNotStandalone();
 		return this.get("/metricsz");
 	}
 
 	async getAcceptablez(): Promise<SuccessResponse<AcceptablezResponse>> {
+		this.assertNotStandalone();
 		return this.get("/acceptablez");
 	}
 
@@ -37,6 +49,16 @@ export class JudgeCoreClient {
 		task: VerdictTask,
 	): Promise<SuccessResponse<VerdictResponse>> {
 		return this.post("/task", task);
+	}
+
+	private assertNotStandalone(): void {
+		if (this.usingStandalone) {
+			throw new JudgeCoreError(
+				"endpoint not available in standalone mode",
+				"STANDALONE_MODE",
+				0,
+			);
+		}
 	}
 
 	private async get<T>(path: string): Promise<SuccessResponse<T>> {

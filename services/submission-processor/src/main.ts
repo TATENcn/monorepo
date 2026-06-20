@@ -8,9 +8,19 @@ const logger = pino({ name: "submission-processor" });
 const { channel, config } = await initRabbitMq(process.env.RABBIT_MQ_URL!);
 logger.info("configured rabbitmq");
 
-const client = new JudgeCoreClient(process.env.JUDGE_CORE_URL!);
-await client.getAcceptablez();
-logger.info("judge-core available");
+const usingStandalone = process.env.JUDGE_CORE_STANDALONE === "true";
+
+const client = new JudgeCoreClient({
+	baseUrl: process.env.JUDGE_CORE_URL!,
+	usingStandalone,
+});
+
+if (!usingStandalone) {
+	await client.getAcceptablez();
+	logger.info("judge-core available");
+} else {
+	logger.info("judge-core standalone mode");
+}
 
 await channel.consume(
 	config.SUBMIT_QUEUE,
