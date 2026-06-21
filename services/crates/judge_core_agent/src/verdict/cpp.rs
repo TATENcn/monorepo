@@ -18,7 +18,7 @@ use tracing::{debug, info, instrument, trace};
 use crate::limit::{cgroup::CgroupGuard, seccomp::seccomp_filter};
 use crate::truncate_str;
 use crate::verdict::Verdict;
-use judge_core_shared::models::{KilledReason, VerdictTaskResult};
+use judge_core_shared::models::{CaseVerdict, KilledReason};
 
 pub struct Cpp {
     work_dir: PathBuf,
@@ -129,7 +129,7 @@ impl Verdict for Cpp {
         case: judge_core_shared::models::Case,
         limit: &judge_core_shared::models::ResourcesLimit,
         id: u64,
-    ) -> Result<judge_core_shared::models::VerdictTaskResult, super::VerdictError> {
+    ) -> Result<CaseVerdict, super::VerdictError> {
         let exe_path = self.work_dir.join("executable");
 
         let mut cmd = process::Command::new(&exe_path);
@@ -234,12 +234,12 @@ impl Verdict for Cpp {
         trace!(stdout = truncate_str(&stdout, 1024), stderr = truncate_str(&stderr, 1024), "output content");
 
         match outcome {
-            ChildOutcome::OutputExceeded => Ok(VerdictTaskResult::Killed {
+            ChildOutcome::OutputExceeded => Ok(CaseVerdict::Killed {
                 reason: KilledReason::OutputLimitExceeded,
                 stdout,
                 stderr,
             }),
-            ChildOutcome::WallTimeout => Ok(VerdictTaskResult::Killed {
+            ChildOutcome::WallTimeout => Ok(CaseVerdict::Killed {
                 reason: KilledReason::WallTimeLimitExceeded,
                 stdout,
                 stderr,
@@ -251,7 +251,7 @@ impl Verdict for Cpp {
 
                     if usage.cpu_time_ms > limit.cpu_time_ms {
                         info!(?usage, cpu_limit = limit.cpu_time_ms, "cpu time limit exceeded");
-                        return Ok(VerdictTaskResult::Killed {
+                        return Ok(CaseVerdict::Killed {
                             reason: KilledReason::CpuTimeLimitExceeded,
                             stdout,
                             stderr,
@@ -260,7 +260,7 @@ impl Verdict for Cpp {
 
                     if stdout.len() > output_limit || stderr.len() > output_limit {
                         info!(stdout_len = stdout.len(), stderr_len = stderr.len(), output_limit, "output limit exceeded");
-                        return Ok(VerdictTaskResult::Killed {
+                        return Ok(CaseVerdict::Killed {
                             reason: KilledReason::OutputLimitExceeded,
                             stdout,
                             stderr,
@@ -273,10 +273,10 @@ impl Verdict for Cpp {
 
                     if expected == received {
                         info!(?usage, "accepted");
-                        Ok(VerdictTaskResult::Accepted { usage })
+                        Ok(CaseVerdict::Accepted { usage })
                     } else {
                         info!(expected_len = expected.len(), received_len = received.len(), "wrong answer");
-                        Ok(VerdictTaskResult::WrongAnswer {
+                        Ok(CaseVerdict::WrongAnswer {
                             wrong_case: case,
                             received: stdout,
                             stderr,
@@ -284,7 +284,7 @@ impl Verdict for Cpp {
                     }
                 } else if let Some(code) = status.code() {
                     info!(exit_code = code, "runtime error");
-                    Ok(VerdictTaskResult::RuntimeError { stderr, exit_code: code })
+                    Ok(CaseVerdict::RuntimeError { stderr, exit_code: code })
                 } else {
                     let reason = if cg.was_oom_killed() {
                         info!("oom killed");
@@ -294,7 +294,7 @@ impl Verdict for Cpp {
                         info!(signal, "signaled");
                         KilledReason::Signaled { signal }
                     };
-                    Ok(VerdictTaskResult::Killed { reason, stdout, stderr })
+                    Ok(CaseVerdict::Killed { reason, stdout, stderr })
                 }
             }
         }

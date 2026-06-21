@@ -31,6 +31,7 @@ pub struct VerdictTask {
     pub cases: Vec<Case>,
     pub limits: ResourcesLimit,
     pub language: Language,
+    pub stop_on_first_error: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -43,30 +44,20 @@ pub enum KilledReason {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+pub enum CaseVerdict {
+    Accepted { usage: ResourcesUsage },
+    WrongAnswer { wrong_case: Case, received: String, stderr: String },
+    Killed { reason: KilledReason, stdout: String, stderr: String },
+    RuntimeError { stderr: String, exit_code: i32 },
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub enum VerdictTaskResult {
-    CompilationError {
-        message: String,
-    },
-    Accepted {
-        usage: ResourcesUsage, // Maximum
-    },
-    Killed {
-        reason: KilledReason,
-        stdout: String,
-        stderr: String,
-    },
-    WrongAnswer {
-        wrong_case: Case,
-        received: String,
-        stderr: String,
-    },
-    Internal {
-        message: String,
-    },
-    RuntimeError {
-        stderr: String,
-        exit_code: i32,
-    },
+    Stopped { verdict: CaseVerdict },
+    AllPassed { max_usage: ResourcesUsage },
+    Collected { cases: Vec<CaseVerdict> },
+    Internal { message: String },
+    CompilationError { message: String },
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, Eq, PartialEq)]

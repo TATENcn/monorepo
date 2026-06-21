@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use judge_core_shared::models::{Case, ResourcesLimit, ResourcesUsage, VerdictTask, VerdictTaskResult};
+use judge_core_shared::models::{Case, CaseVerdict, ResourcesLimit, ResourcesUsage, VerdictTask, VerdictTaskResult};
 use tokio::io;
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, instrument};
@@ -23,7 +23,7 @@ pub trait Verdict: Sized + Send + Sync {
     fn compile(&self, source: &str) -> impl std::future::Future<Output = Result<CompileResult, VerdictError>> + Send;
 
     /// Verdict test case
-    fn verdict(&self, case: Case, limit: &ResourcesLimit, id: u64) -> impl std::future::Future<Output = Result<VerdictTaskResult, VerdictError>> + Send;
+    fn verdict(&self, case: Case, limit: &ResourcesLimit, id: u64) -> impl std::future::Future<Output = Result<CaseVerdict, VerdictError>> + Send;
 
     /// Cleanup workdir and environments
     fn cleanup(&self) -> impl std::future::Future<Output = Result<(), VerdictError>> + Send;
@@ -84,15 +84,12 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
 
     static VERDICT_ID: AtomicU64 = AtomicU64::new(0);
 
-    let mut max_usage = ResourcesUsage {
-        cpu_time_ms: 0,
-        wall_time_ms: 0,
-        memory_bytes: 0,
-    };
-
     let mut cases = task.cases;
     let limits = task.limits;
+    let stop_on_first = task.stop_on_first_error;
     let mut case_idx: usize = 0;
+    let mut collected: Option<Vec<CaseVerdict>> = if stop_on_first { None } else { Some(Vec::with_capacity(cases.len())) };
+    let mut max_usage: Option<ResourcesUsage> = None;
 
     while !cases.is_empty() {
         let batch_size = BATCH_MAX.min(cases.len());
@@ -103,9 +100,8 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
             let j = Arc::clone(&judge);
             let limits = limits.clone();
             let verdict_id = VERDICT_ID.fetch_add(1, Ordering::Relaxed);
-            let idx = case_idx;
 
-            info!(case_idx = idx, input_len = case.input.len(), "running case");
+            info!(case_idx, input_len = case.input.len(), "running case");
 
             join_set.spawn(async move { j.verdict(case, &limits, verdict_id).await });
 
@@ -117,17 +113,26 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
                 Ok(Ok(verdict)) => {
                     debug!(result = ?verdict, "case completed");
 
-                    match verdict {
-                        VerdictTaskResult::Accepted { usage } => {
-                            max_usage.cpu_time_ms = max_usage.cpu_time_ms.max(usage.cpu_time_ms);
-                            max_usage.wall_time_ms = max_usage.wall_time_ms.max(usage.wall_time_ms);
-                            max_usage.memory_bytes = max_usage.memory_bytes.max(usage.memory_bytes);
+                    if stop_on_first && !matches!(verdict, CaseVerdict::Accepted { .. }) {
+                        info!("stopping on first error");
+                        join_set.abort_all();
+                        let _ = judge.cleanup().await;
+                        return VerdictTaskResult::Stopped { verdict };
+                    }
+
+                    if let CaseVerdict::Accepted { ref usage } = verdict {
+                        match &mut max_usage {
+                            Some(m) => {
+                                m.cpu_time_ms = m.cpu_time_ms.max(usage.cpu_time_ms);
+                                m.wall_time_ms = m.wall_time_ms.max(usage.wall_time_ms);
+                                m.memory_bytes = m.memory_bytes.max(usage.memory_bytes);
+                            }
+                            None => max_usage = Some(usage.clone()),
                         }
-                        other => {
-                            join_set.abort_all();
-                            let _ = judge.cleanup().await;
-                            return other;
-                        }
+                    }
+
+                    if let Some(ref mut col) = collected {
+                        col.push(verdict);
                     }
                 }
                 Ok(Err(e)) => {
@@ -150,7 +155,15 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
     debug!("cleaning up");
     let _ = judge.cleanup().await;
 
-    let final_result = VerdictTaskResult::Accepted { usage: max_usage };
-    info!(result = ?final_result, "verdict completed");
-    final_result
+    if stop_on_first {
+        let final_result = VerdictTaskResult::AllPassed { max_usage: max_usage.unwrap() };
+        info!(result = ?final_result, "verdict completed");
+        final_result
+    } else {
+        let cases = collected.unwrap();
+        let case_count = cases.len();
+        let final_result = VerdictTaskResult::Collected { cases };
+        info!(case_count, "verdict completed");
+        final_result
+    }
 }

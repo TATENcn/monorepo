@@ -40,6 +40,7 @@ export const submitSolution = async (
 			memory_bytes: problem.limitMemoryBytes,
 			output_bytes: problem.limitOutputBytes,
 		},
+		stop_on_first_error: true,
 	};
 
 	return { submissionId: submission.id, verdictTask };
