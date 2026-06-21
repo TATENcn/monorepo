@@ -33,12 +33,7 @@ export interface VerdictTask {
 }
 
 // Mirrors shared::models::KilledReason (serde internally-tagged enum)
-export type KilledReason =
-	| "MemoryLimitExceeded"
-	| "WallTimeLimitExceeded"
-	| "CpuTimeLimitExceeded"
-	| "OutputLimitExceeded"
-	| { Signaled: { signal: number } };
+export type KilledReason = "MemoryLimitExceeded" | "WallTimeLimitExceeded" | "CpuTimeLimitExceeded" | "OutputLimitExceeded" | { Signaled: { signal: number } };
 
 // Mirrors http::VerdictResponse (serde tag = "status")
 export type VerdictResponse =

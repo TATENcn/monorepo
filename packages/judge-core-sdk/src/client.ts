@@ -1,11 +1,4 @@
-import type {
-	AcceptablezResponse,
-	ErrorResponse,
-	PoolMetrics,
-	SuccessResponse,
-	VerdictResponse,
-	VerdictTask,
-} from "models/judge-core";
+import type { AcceptablezResponse, ErrorResponse, PoolMetrics, SuccessResponse, VerdictResponse, VerdictTask } from "models/judge-core";
 
 export class JudgeCoreError extends Error {
 	constructor(
@@ -28,10 +21,7 @@ export class JudgeCoreClient {
 	private usingStandalone: boolean;
 
 	constructor(options: JudgeCoreClientOptions = {}) {
-		this.baseUrl = (options.baseUrl ?? "http://0.0.0.0:8000").replace(
-			/\/+$/,
-			"",
-		);
+		this.baseUrl = (options.baseUrl ?? "http://0.0.0.0:8000").replace(/\/+$/, "");
 		this.usingStandalone = options.usingStandalone ?? false;
 	}
 
@@ -45,19 +35,13 @@ export class JudgeCoreClient {
 		return this.get("/acceptablez");
 	}
 
-	async submitTask(
-		task: VerdictTask,
-	): Promise<SuccessResponse<VerdictResponse>> {
+	async submitTask(task: VerdictTask): Promise<SuccessResponse<VerdictResponse>> {
 		return this.post("/task", task);
 	}
 
 	private assertNotStandalone(): void {
 		if (this.usingStandalone) {
-			throw new JudgeCoreError(
-				"endpoint not available in standalone mode",
-				"STANDALONE_MODE",
-				0,
-			);
+			throw new JudgeCoreError("endpoint not available in standalone mode", "STANDALONE_MODE", 0);
 		}
 	}
 
@@ -69,10 +53,7 @@ export class JudgeCoreClient {
 		return res.json() as Promise<SuccessResponse<T>>;
 	}
 
-	private async post<T>(
-		path: string,
-		body: unknown,
-	): Promise<SuccessResponse<T>> {
+	private async post<T>(path: string, body: unknown): Promise<SuccessResponse<T>> {
 		const res = await fetch(`${this.baseUrl}${path}`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -91,10 +72,6 @@ export class JudgeCoreClient {
 		} catch {
 			// body not JSON
 		}
-		throw new JudgeCoreError(
-			body?.message ?? res.statusText,
-			body?.error.code ?? "UNKNOWN",
-			res.status,
-		);
+		throw new JudgeCoreError(body?.message ?? res.statusText, body?.error.code ?? "UNKNOWN", res.status);
 	}
 }

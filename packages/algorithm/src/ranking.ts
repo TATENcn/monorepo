@@ -20,10 +20,7 @@ export interface IIcpcOptions {
  * @param options Icpc series algorithm options
  * @returns Sorted entries
  */
-export const icpcRankSort = (
-	entries: IIcpcEntry[],
-	options: IIcpcOptions,
-): IIcpcEntry[] => {
+export const icpcRankSort = (entries: IIcpcEntry[], options: IIcpcOptions): IIcpcEntry[] => {
 	return entries.toSorted((a, b) => {
 		if (a.solvedProblems !== b.solvedProblems) {
 			return b.solvedProblems - a.solvedProblems;
@@ -49,10 +46,7 @@ export const icpcPenalty = (entry: IIcpcEntry, options: IIcpcOptions) => {
  * @param options Icpc series algorithm options
  * @returns Team entries and rank (1,2,2,4 style)
  */
-export const icpcAssignRanks = (
-	entries: IIcpcEntry[],
-	options: IIcpcOptions,
-): { entry: IIcpcEntry; rank: number }[] => {
+export const icpcAssignRanks = (entries: IIcpcEntry[], options: IIcpcOptions): { entry: IIcpcEntry; rank: number }[] => {
 	const sorted = icpcRankSort(entries, options);
 
 	const result: { entry: IIcpcEntry; rank: number }[] = [];
@@ -70,9 +64,7 @@ export const icpcAssignRanks = (
 		const prevPenalty = icpcPenalty(previous, options);
 		const currPenalty = icpcPenalty(current, options);
 
-		const isTie =
-			current.solvedProblems === previous.solvedProblems &&
-			currPenalty === prevPenalty;
+		const isTie = current.solvedProblems === previous.solvedProblems && currPenalty === prevPenalty;
 
 		if (isTie) {
 			result.push({ entry: current, rank });

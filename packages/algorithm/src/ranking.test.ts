@@ -1,11 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-	type IIcpcEntry,
-	type IIcpcOptions,
-	icpcAssignRanks,
-	icpcPenalty,
-	icpcRankSort,
-} from "./ranking";
+import { type IIcpcEntry, type IIcpcOptions, icpcAssignRanks, icpcPenalty, icpcRankSort } from "./ranking";
 
 const defaultOptions: IIcpcOptions = { penaltySeconds: 1200 };
 
@@ -213,10 +207,7 @@ describe("icpcAssignRanks", () => {
 	});
 
 	it("handles a single entry", () => {
-		const ranked = icpcAssignRanks(
-			[{ id: "One", solvedProblems: 1, penaltyCounts: 0, timeUsing: 0 }],
-			defaultOptions,
-		);
+		const ranked = icpcAssignRanks([{ id: "One", solvedProblems: 1, penaltyCounts: 0, timeUsing: 0 }], defaultOptions);
 
 		expect(ranked).toEqual([
 			{
