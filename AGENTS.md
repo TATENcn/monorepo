@@ -3,83 +3,108 @@
 ## Workspace layout
 
 ```
-root/
-  services/
-    judge-core/           # Rust workspace
-      crates/
-        shared/           # models, binary protocol, socket helpers
-        agent/            # in-container: compiles & sandboxes user code
-        manager/          # on-host: HTTP API, containerd, agent pool
-        standalone/       # agent over HTTP (no UDS, no containerd, no manager)
-    submission-processor/ # AMQP consumer, dispatches to judge-core
-  apps/
-    api/                  # TypeScript backend
-  packages/               # shared TypeScript packages
-    algorithm/            # algorithm
-    judge-core-sdk/       # HTTP client for judge-core API
-    models/               # shared TS types
-    utils/                # shared TS utilities
+onlinejudge/
+├── apps/api/                  # Elysia HTTP API (port 3080) — Better Auth, Drizzle/Postgres
+├── packages/
+│   ├── judge-core-sdk/        # TS HTTP client for judge_core_manager
+│   ├── models/                # Shared TS types (submit/result messages, verdict types)
+│   ├── algorithm/             # Rating algorithms
+│   └── utils/
+├── services/crates/
+│   ├── judge_core_shared/     # Rust models, HTTP types, wire protocol, error codes
+│   ├── judge_core_sdk/        # Rust HTTP client for judge_core_manager
+│   ├── judge_core_manager/    # Agent pool + autoscaler + HTTP router (port 8000)
+│   ├── judge_core_agent/      # Sandboxed compile/run, Unix socket server
+│   ├── judge_core_agent_standalone/  # Single-node agent with HTTP interface
+│   └── submission_processor/  # RabbitMQ consumer → judge_core bridge
+├── scripts/build-agent.fish   # Build & load agent image into containerd
+├── nx.json                    # Task orchestration, caching
+├── biome.json                 # Formatter/linter
+├── package.json               # Bun workspace root
+└── tsconfig.json
 ```
 
-- **Package manager**: `bun` (not npm).
-- **Nx**: thin task runner; `nx build judge-core` delegates to `cargo build`.
-- All `cargo` commands must run inside `services/judge-core/`.
+Monorepo: Bun workspaces (TS) + Cargo workspace (Rust). Nx handles task dependencies and caching.
 
 ## Commands
 
-```bash
-# Dependencies
-bun install
+| Command | Description |
+|---|---|
+| `bun install` | Install TS dependencies |
+| `bunx nx <target> <project>` | Run build/lint/typecheck with Nx caching |
+| `bunx nx run-many -t build` | Build all TS projects in dependency order |
 
-# Rust (from services/judge-core/)
-cargo build --release
-cargo build --release --bin manager   # Manager must run with root privileges
-cargo build --release --bin standalone # Agent over HTTP — for local dev & logic validation
+Nx infers TypeScript tasks automatically via its plugin. No `project.json` targets needed for build/lint/typecheck.
 
-# Standalone (no containerd needed)
-cargo build --release --bin standalone
-./target/release/standalone    # → HTTP on 0.0.0.0:8000, POST /task with VerdictTask JSON
+## Running `judge_core`
 
-# Agent container image
-fish scripts/build-agent.fish   # docker build → `ctr image import`
+Two modes:
+
+**Manager + Agent** (production, containerd-based pool):
+```fish
+fish scripts/build-agent.fish
+cd services && cargo run -p judge_core_manager
+# Manager autoscales 2–5 agents. Each agent listens on /run/judge-core/agents/<id>/agent.sock
 ```
 
-## Running the manager
-
-**Prerequisite**: containerd daemon running, reachable at `/run/containerd/containerd.sock`, with a `judge-core` namespace. The agent image (`docker.io/library/judge-core:latest`) must already be imported.
-
-```bash
-cargo build --release --bin manager
-sudo ./target/release/manager    # → HTTP on 0.0.0.0:8000
+**Standalone** (single binary, no containerd):
+```fish
+cd services && cargo run -p judge_core_agent_standalone
+# Listens on 0.0.0.0:8000, single /task endpoint
 ```
 
-All configuration is hardcoded in `crates/manager/src/main.rs`. No automated tests — verify manually.
+## Running `submission_processor`
+
+```fish
+RABBIT_MQ_URL=amqp://... JUDGE_CORE_URL=http://localhost:8000 \
+  cargo run -p submission_processor
+# Set JUDGE_CORE_STANDALONE=true for standalone mode
+```
 
 ## Architecture
 
-- **Manager ↔ agent**: Unix domain sockets with length-prefixed binary framing.
-- **Sandboxing**: seccomp + cgroups v2 per test case.
-- **Execution**: `POST /task` → dispatch to least-loaded agent → compile → run test cases in parallel → return verdict.
-- **Auto-scaling**: pool scales between min/max agents based on queue load.
+**Submission pipeline:** API (`POST /submissions`) → RabbitMQ publish → `submission_processor` consumes → `POST /task` to manager → manager dispatches to agent via Unix socket → agent sandbox-compiles and runs → result flows back through RabbitMQ → API consumer updates DB.
 
-## Conventions
+**Communication:** AMQP (API ↔ processor, JSON), HTTP REST (processor ↔ manager, JSON), Unix stream (manager ↔ agent, postcard binary frames with heartbeat).
 
-- **rustfmt**: `max_width = 160`, Rust edition 2024
+**Manager HTTP API:**
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/metricsz` | Pool metrics (queue size, agent counts, active tasks) |
+| GET | `/acceptablez` | Whether the pool can accept work (`acceptable: bool` + metrics) |
+| POST | `/task` | Submit a `VerdictTask`, returns `VerdictResponse` |
+
+**Agent sandboxing:** containerd containers with user/PID/mount/network/cgroup namespaces, cgroup v2 limits, seccomp filtering, `/work` tmpfs for compilation.
 
 ## Key files
 
-| Concern | Path |
+| File | Role |
 |---|---|
-| Manager entrypoint + config | `crates/manager/src/main.rs` |
-| HTTP API | `crates/manager/src/router.rs` |
-| Agent pool + dispatch | `crates/manager/src/pool.rs` |
-| Container CRUD | `crates/manager/src/provisioner.rs` |
-| Auto-scaling | `crates/manager/src/scaler.rs` |
-| Binary protocol | `crates/shared/src/protocol.rs` |
-| Verdict orchestration | `crates/agent/src/verdict/mod.rs` |
-| C++ compile + execute | `crates/agent/src/verdict/cpp.rs` |
-| seccomp whitelist | `crates/agent/src/limit/seccomp.rs` |
-| cgroups v2 | `crates/agent/src/limit/cgroup.rs` |
-| Standalone entrypoint | `crates/standalone/src/main.rs` |
-| Agent Dockerfile | `services/judge-core/Dockerfile.agent` |
-| Agent (standalone) Dockerfile | `services/judge-core/Dockerfile.agent.standalone` |
+| `apps/api/src/main.ts` | API entry point |
+| `apps/api/src/modules/db/schema.ts` | Drizzle schema — problems, test cases, submissions |
+| `apps/api/src/modules/submission/index.ts` | Submit endpoint + RabbitMQ result consumer |
+| `packages/models/src/judge-core.ts` | TS types for verdict tasks/results |
+| `packages/judge-core-sdk/src/client.ts` | TS HTTP client for manager |
+| `services/crates/judge_core_shared/src/models/mod.rs` | Core Rust types: `VerdictTask`, `VerdictTaskResult`, `Language` |
+| `services/crates/judge_core_shared/src/models/http.rs` | HTTP types, error codes, `VerdictResponse` |
+| `services/crates/judge_core_shared/src/protocol.rs` | Manager↔Agent wire protocol |
+| `services/crates/judge_core_sdk/src/lib.rs` | Rust HTTP client for manager (used by submission_processor) |
+| `services/crates/judge_core_manager/src/main.rs` | Manager entry point |
+| `services/crates/judge_core_manager/src/pool.rs` | Agent pool: dispatch, health checks, retries |
+| `services/crates/judge_core_manager/src/provisioner.rs` | Containerd OCI container lifecycle |
+| `services/crates/judge_core_manager/src/router.rs` | Axum routes + PoolError → HTTP mapping |
+| `services/crates/judge_core_manager/src/scaler.rs` | Autoscaler with EMA utilization tracking |
+| `services/crates/judge_core_agent/src/main.rs` | Agent entry point (Unix socket server) |
+| `services/crates/judge_core_agent/src/verdict/cpp.rs` | C++ compile + run with resource limits |
+| `services/crates/judge_core_agent/src/limit/cgroup.rs` | cgroup v2 enforcement |
+| `services/crates/judge_core_agent/src/limit/seccomp.rs` | Seccomp syscall filter |
+| `services/crates/judge_core_agent_standalone/src/main.rs` | Standalone entry point |
+| `services/crates/submission_processor/src/main.rs` | RabbitMQ consumer entry point |
+| `services/Cargo.toml` | Rust workspace root, shared deps |
+
+## Conventions
+
+- **Error codes** are centralized in `judge_core_shared::models::http` (`ERR_*` constants). The manager router and TS SDK both reference these.
+- **Formatting:** Biome for TS, rustfmt for Rust.
+- **Nx `build`** depends on `^build` — builds dependencies first. No explicit project config needed for standard TS tasks.
