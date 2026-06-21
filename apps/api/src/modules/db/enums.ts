@@ -10,3 +10,5 @@ export const acceptableLanguageEnumLiteral = [Language.Cpp] as const;
 
 export type Difficulty = (typeof difficultyEnumLiteral)[number];
 export type TestCaseType = (typeof testCaseTypeEnumLiteral)[number];
+export type SubmissionStatus = (typeof submissionStatusEnumLiteral)[number];
+export type AcceptableLanguage = (typeof acceptableLanguageEnumLiteral)[number];
