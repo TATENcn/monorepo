@@ -1,14 +1,15 @@
 import { defineRelations } from "drizzle-orm";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql/postgres/driver";
-import { char, integer, jsonb, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, char, integer, jsonb, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import type { VerdictResponse } from "models/judge-core";
 import { user } from "./auth.schema";
-import { acceptableLanguageEnumLiteral, difficultyEnumLiteral, submissionStatusEnumLiteral, testCaseTypeEnumLiteral } from "./enums";
+import { acceptableLanguageEnumLiteral, contestTypeEnumLiteral, difficultyEnumLiteral, submissionStatusEnumLiteral, testCaseTypeEnumLiteral } from "./enums";
 
 export const difficultyEnum = pgEnum("difficulty", difficultyEnumLiteral);
 export const testCaseTypeEnum = pgEnum("test_case_type", testCaseTypeEnumLiteral);
 export const submissionStatusEnum = pgEnum("submission_status", submissionStatusEnumLiteral);
 export const acceptableLanguageEnum = pgEnum("acceptable_language", acceptableLanguageEnumLiteral);
+export const contestTypeEnum = pgEnum("contest_type", contestTypeEnumLiteral);
 
 export const tags = pgTable("tags", {
 	id: uuid("id").primaryKey().defaultRandom(),
@@ -75,6 +76,65 @@ export const submissions = pgTable("submissions", {
 	completedAt: timestamp("completed_at"),
 });
 
+export const contests = pgTable("contests", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	type: contestTypeEnum("type").notNull(),
+	creatorId: text("creator_id")
+		.notNull()
+		.references(() => user.id),
+	title: text("title").notNull(),
+	description: text("description").notNull(),
+	approved: boolean("approved").notNull().default(false),
+	approverId: text("approver_id").references(() => user.id),
+
+	approvedAt: timestamp("approved_at"),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+	deletedAt: timestamp("deleted_at"),
+	startedAt: timestamp("started_at").notNull(),
+	finishedAt: timestamp("finished_at").notNull(),
+});
+
+export const contestProblems = pgTable("contest_problems", {
+	contestId: uuid("contest_id")
+		.primaryKey()
+		.notNull()
+		.references(() => contests.id),
+	problemId: uuid("problem_id")
+		.primaryKey()
+		.notNull()
+		.references(() => problems.id),
+	label: text("label").notNull(),
+	order: integer("order").notNull(),
+});
+
+export const contestSubmissions = pgTable("contest_submissions", {
+	problemId: uuid("problem_id")
+		.primaryKey()
+		.notNull()
+		.references(() => problems.id),
+	contestId: uuid("contest_id")
+		.primaryKey()
+		.notNull()
+		.references(() => contests.id),
+	submissionId: uuid("submission_id")
+		.primaryKey()
+		.notNull()
+		.references(() => submissions.id),
+});
+
+export const contestRegistrations = pgTable("contest_registrations", {
+	contestId: uuid("contest_id")
+		.primaryKey()
+		.notNull()
+		.references(() => contests.id),
+	userId: text("user_id")
+		.primaryKey()
+		.notNull()
+		.references(() => user.id),
+	registeredAt: timestamp("registered_at").notNull().defaultNow(),
+});
+
 export const schema = {
 	tags,
 	problems,
@@ -82,9 +142,13 @@ export const schema = {
 	testCases,
 	submissions,
 	user,
+	contests,
+	contestProblems,
+	contestSubmissions,
+	contestRegistrations,
 };
 
-export const relations = defineRelations({ tags, problems, problemTags, testCases, submissions, user }, (r) => ({
+export const relations = defineRelations({ tags, problems, problemTags, testCases, submissions, user, contests, contestProblems, contestSubmissions, contestRegistrations }, (r) => ({
 	problems: {
 		problemTags: r.many.problemTags({
 			from: r.problems.id,
@@ -101,6 +165,10 @@ export const relations = defineRelations({ tags, problems, problemTags, testCase
 		submissions: r.many.submissions({
 			from: r.problems.id,
 			to: r.submissions.problemId,
+		}),
+		contestProblems: r.many.contestProblems({
+			from: r.problems.id,
+			to: r.contestProblems.problemId,
 		}),
 	},
 	tags: {
@@ -134,6 +202,10 @@ export const relations = defineRelations({ tags, problems, problemTags, testCase
 			from: r.submissions.userId,
 			to: r.user.id,
 		}),
+		contestSubmissions: r.many.contestSubmissions({
+			from: r.submissions.id,
+			to: r.contestSubmissions.submissionId,
+		}),
 	},
 	user: {
 		problems: r.many.problems({
@@ -143,6 +215,74 @@ export const relations = defineRelations({ tags, problems, problemTags, testCase
 		submissions: r.many.submissions({
 			from: r.user.id,
 			to: r.submissions.userId,
+		}),
+		createdContests: r.many.contests({
+			from: r.user.id,
+			to: r.contests.creatorId,
+		}),
+		approvedContests: r.many.contests({
+			from: r.user.id,
+			to: r.contests.approverId,
+		}),
+		contestRegistrations: r.many.contestRegistrations({
+			from: r.user.id,
+			to: r.contestRegistrations.userId,
+		}),
+	},
+	contests: {
+		creator: r.one.user({
+			from: r.contests.creatorId,
+			to: r.user.id,
+		}),
+		approver: r.one.user({
+			from: r.contests.approverId,
+			to: r.user.id,
+		}),
+		contestProblems: r.many.contestProblems({
+			from: r.contests.id,
+			to: r.contestProblems.contestId,
+		}),
+		contestSubmissions: r.many.contestSubmissions({
+			from: r.contests.id,
+			to: r.contestSubmissions.contestId,
+		}),
+		contestRegistrations: r.many.contestRegistrations({
+			from: r.contests.id,
+			to: r.contestRegistrations.contestId,
+		}),
+	},
+	contestProblems: {
+		contest: r.one.contests({
+			from: r.contestProblems.contestId,
+			to: r.contests.id,
+		}),
+		problem: r.one.problems({
+			from: r.contestProblems.problemId,
+			to: r.problems.id,
+		}),
+	},
+	contestSubmissions: {
+		contest: r.one.contests({
+			from: r.contestSubmissions.contestId,
+			to: r.contests.id,
+		}),
+		problem: r.one.problems({
+			from: r.contestSubmissions.problemId,
+			to: r.problems.id,
+		}),
+		submission: r.one.submissions({
+			from: r.contestSubmissions.submissionId,
+			to: r.submissions.id,
+		}),
+	},
+	contestRegistrations: {
+		contest: r.one.contests({
+			from: r.contestRegistrations.contestId,
+			to: r.contests.id,
+		}),
+		user: r.one.user({
+			from: r.contestRegistrations.userId,
+			to: r.user.id,
 		}),
 	},
 }));

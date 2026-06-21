@@ -4,8 +4,10 @@ export const difficultyEnumLiteral = ["入门", "普及-", "普及/提高-", "�
 export const testCaseTypeEnumLiteral = ["example", "hidden"] as const;
 export const submissionStatusEnumLiteral = ["pending", "completed"] as const;
 export const acceptableLanguageEnumLiteral = [Language.Cpp] as const;
+export const contestTypeEnumLiteral = ["icpc"] as const;
 
 export type Difficulty = (typeof difficultyEnumLiteral)[number];
 export type TestCaseType = (typeof testCaseTypeEnumLiteral)[number];
 export type SubmissionStatus = (typeof submissionStatusEnumLiteral)[number];
 export type AcceptableLanguage = (typeof acceptableLanguageEnumLiteral)[number];
+export type ContestType = (typeof contestTypeEnumLiteral)[number];
