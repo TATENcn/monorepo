@@ -122,19 +122,11 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
 
         while let Some(result) = join_set.join_next().await {
             match result {
-                Ok(Ok(verdict)) => {
-                    debug!(result = ?verdict, "case completed");
-
-                    if stop_on_first && !matches!(verdict, CaseVerdict::Accepted { .. }) {
-                        info!("stopping on first error");
-                        join_set.abort_all();
-                        let _ = judge.cleanup().await;
-                        return VerdictTaskResult::Stopped { verdict };
-                    }
-
-                    if let CaseVerdict::Accepted { ref usage } = verdict {
-                        match &mut max_usage {
-                            Some(m) => {
+                Ok(Ok(verdict)) => match (stop_on_first, &verdict) {
+                    (true, CaseVerdict::Accepted { usage }) => {
+                        debug!(result = ?verdict, "case completed");
+                        match max_usage {
+                            Some(ref mut m) => {
                                 m.cpu_time_ms = m.cpu_time_ms.max(usage.cpu_time_ms);
                                 m.wall_time_ms = m.wall_time_ms.max(usage.wall_time_ms);
                                 m.memory_bytes = m.memory_bytes.max(usage.memory_bytes);
@@ -142,11 +134,19 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
                             None => max_usage = Some(usage.clone()),
                         }
                     }
-
-                    if let Some(ref mut col) = collected {
-                        col.push(verdict);
+                    (true, _) => {
+                        info!("stopping on first error");
+                        join_set.abort_all();
+                        let _ = judge.cleanup().await;
+                        return VerdictTaskResult::Stopped { verdict };
                     }
-                }
+                    (false, _) => {
+                        debug!(result = ?verdict, "case completed");
+                        if let Some(ref mut col) = collected {
+                            col.push(verdict);
+                        }
+                    }
+                },
                 Ok(Err(e)) => {
                     error!(error = %e, "verdict error");
                     join_set.abort_all();
