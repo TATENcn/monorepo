@@ -2,6 +2,7 @@ import Elysia from "elysia";
 import { auth } from "./service";
 
 const authRoutePlugin = new Elysia({ name: "auth-route" }).mount(auth.handler);
+
 const authPlugin = new Elysia({ name: "auth" }).macro({
 	auth: {
 		async resolve({ status, request: { headers } }) {
@@ -11,9 +12,10 @@ const authPlugin = new Elysia({ name: "auth" }).macro({
 			return {
 				user: session.user,
 				session: session.session,
+				role: session.user.role ?? "user",
 			};
 		},
 	},
 });
 
-export { authPlugin, authRoutePlugin };
+export { auth, authPlugin, authRoutePlugin };
