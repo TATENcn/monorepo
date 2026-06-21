@@ -88,7 +88,7 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
     let limits = task.limits;
     let stop_on_first = task.stop_on_first_error;
     let mut case_idx: usize = 0;
-    let mut collected: Option<Vec<CaseVerdict>> = if stop_on_first { None } else { Some(Vec::with_capacity(cases.len())) };
+    let mut collected: Option<Vec<Option<CaseVerdict>>> = if stop_on_first { None } else { Some(vec![None; cases.len()]) };
     let mut max_usage: Option<ResourcesUsage> = None;
 
     if cases.is_empty() {
@@ -115,16 +115,16 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
 
             info!(case_idx, input_len = case.input.len(), "running case");
 
-            join_set.spawn(async move { j.verdict(case, &limits, verdict_id).await });
+            join_set.spawn(async move { (case_idx, j.verdict(case, &limits, verdict_id).await) });
 
             case_idx += 1;
         }
 
         while let Some(result) = join_set.join_next().await {
             match result {
-                Ok(Ok(verdict)) => match (stop_on_first, &verdict) {
+                Ok((case_idx, Ok(verdict))) => match (stop_on_first, &verdict) {
                     (true, CaseVerdict::Accepted { usage }) => {
-                        debug!(result = ?verdict, "case completed");
+                        debug!(case_idx, result = ?verdict, "case completed");
                         match max_usage {
                             Some(ref mut m) => {
                                 m.cpu_time_ms = m.cpu_time_ms.max(usage.cpu_time_ms);
@@ -135,20 +135,20 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
                         }
                     }
                     (true, _) => {
-                        info!("stopping on first error");
+                        info!(case_idx, "stopping on first error");
                         join_set.abort_all();
                         let _ = judge.cleanup().await;
                         return VerdictTaskResult::Stopped { verdict };
                     }
                     (false, _) => {
-                        debug!(result = ?verdict, "case completed");
+                        debug!(case_idx, result = ?verdict, "case completed");
                         if let Some(ref mut col) = collected {
-                            col.push(verdict);
+                            col[case_idx] = Some(verdict);
                         }
                     }
                 },
-                Ok(Err(e)) => {
-                    error!(error = %e, "verdict error");
+                Ok((idx, Err(e))) => {
+                    error!(idx, error = %e, "verdict error");
                     join_set.abort_all();
                     let _ = judge.cleanup().await;
                     return VerdictTaskResult::Internal { message: e.to_string() };
@@ -172,7 +172,7 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
         info!(result = ?final_result, "verdict completed");
         final_result
     } else {
-        let cases = collected.unwrap();
+        let cases: Vec<CaseVerdict> = collected.unwrap().into_iter().map(Option::unwrap).collect();
         let case_count = cases.len();
         let final_result = VerdictTaskResult::Collected { cases };
         info!(case_count, "verdict completed");
