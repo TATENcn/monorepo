@@ -1,5 +1,5 @@
 import { t } from "elysia";
-import { difficultyEnumLiteral, testCaseTypeEnumLiteral } from "../db/schema";
+import { difficultyEnumLiteral, testCaseTypeEnumLiteral } from "../db/enums";
 
 export const difficultyEnum = t.Enum(Object.fromEntries(difficultyEnumLiteral.map((v) => [v, v])));
 export const testCaseTypeEnum = t.Enum(Object.fromEntries(testCaseTypeEnumLiteral.map((v) => [v, v])));

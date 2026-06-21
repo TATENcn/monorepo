@@ -1,13 +1,10 @@
 import { defineRelations } from "drizzle-orm";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql/postgres/driver";
 import { char, integer, jsonb, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
-import { Language, type VerdictResponse } from "models/judge-core";
+import type { VerdictResponse } from "models/judge-core";
 import { user } from "./auth.schema";
+import { acceptableLanguageEnumLiteral, difficultyEnumLiteral, submissionStatusEnumLiteral, testCaseTypeEnumLiteral } from "./enums";
 
-export const difficultyEnumLiteral = ["入门", "普及-", "普及/提高-", "普及+/提高", "提高+/省选-", "省选/NOI-", "NOI/NOI+/CTSC"] as const;
-export const testCaseTypeEnumLiteral = ["example", "hidden"] as const;
-export const submissionStatusEnumLiteral = ["pending", "completed"] as const;
-export const acceptableLanguageEnumLiteral = [Language.Cpp] as const;
 export const difficultyEnum = pgEnum("difficulty", difficultyEnumLiteral);
 export const testCaseTypeEnum = pgEnum("test_case_type", testCaseTypeEnumLiteral);
 export const submissionStatusEnum = pgEnum("submission_status", submissionStatusEnumLiteral);
