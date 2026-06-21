@@ -7,3 +7,6 @@ export const testCaseTypeEnumLiteral = ["example", "hidden"] as const;
 export const submissionStatusEnumLiteral = ["pending", "completed"] as const;
 
 export const acceptableLanguageEnumLiteral = [Language.Cpp] as const;
+
+export type Difficulty = (typeof difficultyEnumLiteral)[number];
+export type TestCaseType = (typeof testCaseTypeEnumLiteral)[number];
