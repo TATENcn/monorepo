@@ -25,7 +25,7 @@ CREATE TABLE "problems" (
 CREATE TABLE "submissions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 	"problem_id" uuid NOT NULL,
-	"user_id" uuid NOT NULL,
+	"user_id" text NOT NULL,
 	"source_code" text NOT NULL,
 	"submission_status" "submission_status" DEFAULT 'pending'::"submission_status" NOT NULL,
 	"result" jsonb,

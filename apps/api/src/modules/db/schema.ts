@@ -64,7 +64,7 @@ export const submissions = pgTable("submissions", {
 	problemId: uuid("problem_id")
 		.notNull()
 		.references(() => problems.id),
-	userId: uuid("user_id")
+	userId: text("user_id")
 		.notNull()
 		.references(() => user.id),
 	sourceCode: text("source_code").notNull(),

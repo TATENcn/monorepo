@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "0f43c9ce-5464-415e-aab1-26e9b02f8042",
+  "id": "fa6fcb8e-ac70-4cf5-a0c8-af00f58be4ee",
   "prevIds": [
     "8b10a2b6-01de-44a7-bfce-a4ec446ffcab"
   ],
@@ -309,7 +309,7 @@
       "table": "submissions"
     },
     {
-      "type": "uuid",
+      "type": "text",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
