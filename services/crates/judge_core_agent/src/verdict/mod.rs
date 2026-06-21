@@ -91,6 +91,18 @@ pub async fn handle<T: Verdict + 'static>(id: u64, task: VerdictTask) -> Verdict
     let mut collected: Option<Vec<CaseVerdict>> = if stop_on_first { None } else { Some(Vec::with_capacity(cases.len())) };
     let mut max_usage: Option<ResourcesUsage> = None;
 
+    if cases.is_empty() {
+        debug!("no cases to run");
+        let _ = judge.cleanup().await;
+        return VerdictTaskResult::AllPassed {
+            max_usage: ResourcesUsage {
+                cpu_time_ms: 0,
+                wall_time_ms: 0,
+                memory_bytes: 0,
+            },
+        };
+    }
+
     while !cases.is_empty() {
         let batch_size = BATCH_MAX.min(cases.len());
         let batch: Vec<_> = cases.drain(..batch_size).collect();
