@@ -1,0 +1,10 @@
+{
+	"name": "api.v2",
+	"type": "module",
+	"private": "true",
+	"dependencies": {
+		"@nestjs/core": "^11.1.27",
+		"@nestjs/common": "^11.1.27",
+		"@nestjs/platform-express": "^11.1.27"
+	}
+}
