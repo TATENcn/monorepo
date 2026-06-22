@@ -1,8 +1,8 @@
+import { user } from "auth/schema";
 import { defineRelations } from "drizzle-orm";
 import type { BunSQLDatabase } from "drizzle-orm/bun-sql/postgres/driver";
 import { boolean, char, integer, jsonb, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import type { VerdictResponse } from "models/judge-core";
-import { user } from "./auth.schema";
 import { acceptableLanguageEnumLiteral, contestTypeEnumLiteral, difficultyEnumLiteral, submissionStatusEnumLiteral, testCaseTypeEnumLiteral } from "./enums";
 
 export const difficultyEnum = pgEnum("difficulty", difficultyEnumLiteral);
@@ -148,144 +148,147 @@ export const schema = {
 	contestRegistrations,
 };
 
-export const relations = defineRelations({ tags, problems, problemTags, testCases, submissions, user, contests, contestProblems, contestSubmissions, contestRegistrations }, (r) => ({
-	problems: {
-		problemTags: r.many.problemTags({
-			from: r.problems.id,
-			to: r.problemTags.problemId,
-		}),
-		testCases: r.many.testCases({
-			from: r.problems.id,
-			to: r.testCases.problemId,
-		}),
-		author: r.one.user({
-			from: r.problems.authorId,
-			to: r.user.id,
-		}),
-		submissions: r.many.submissions({
-			from: r.problems.id,
-			to: r.submissions.problemId,
-		}),
-		contestProblems: r.many.contestProblems({
-			from: r.problems.id,
-			to: r.contestProblems.problemId,
-		}),
-	},
-	tags: {
-		problemTags: r.many.problemTags({
-			from: r.tags.id,
-			to: r.problemTags.tagId,
-		}),
-	},
-	problemTags: {
-		problem: r.one.problems({
-			from: r.problemTags.problemId,
-			to: r.problems.id,
-		}),
-		tag: r.one.tags({
-			from: r.problemTags.tagId,
-			to: r.tags.id,
-		}),
-	},
-	testCases: {
-		problem: r.one.problems({
-			from: r.testCases.problemId,
-			to: r.problems.id,
-		}),
-	},
-	submissions: {
-		problem: r.one.problems({
-			from: r.submissions.problemId,
-			to: r.problems.id,
-		}),
-		user: r.one.user({
-			from: r.submissions.userId,
-			to: r.user.id,
-		}),
-		contestSubmissions: r.many.contestSubmissions({
-			from: r.submissions.id,
-			to: r.contestSubmissions.submissionId,
-		}),
-	},
-	user: {
-		problems: r.many.problems({
-			from: r.user.id,
-			to: r.problems.authorId,
-		}),
-		submissions: r.many.submissions({
-			from: r.user.id,
-			to: r.submissions.userId,
-		}),
-		createdContests: r.many.contests({
-			from: r.user.id,
-			to: r.contests.creatorId,
-		}),
-		approvedContests: r.many.contests({
-			from: r.user.id,
-			to: r.contests.approverId,
-		}),
-		contestRegistrations: r.many.contestRegistrations({
-			from: r.user.id,
-			to: r.contestRegistrations.userId,
-		}),
-	},
-	contests: {
-		creator: r.one.user({
-			from: r.contests.creatorId,
-			to: r.user.id,
-		}),
-		approver: r.one.user({
-			from: r.contests.approverId,
-			to: r.user.id,
-		}),
-		contestProblems: r.many.contestProblems({
-			from: r.contests.id,
-			to: r.contestProblems.contestId,
-		}),
-		contestSubmissions: r.many.contestSubmissions({
-			from: r.contests.id,
-			to: r.contestSubmissions.contestId,
-		}),
-		contestRegistrations: r.many.contestRegistrations({
-			from: r.contests.id,
-			to: r.contestRegistrations.contestId,
-		}),
-	},
-	contestProblems: {
-		contest: r.one.contests({
-			from: r.contestProblems.contestId,
-			to: r.contests.id,
-		}),
-		problem: r.one.problems({
-			from: r.contestProblems.problemId,
-			to: r.problems.id,
-		}),
-	},
-	contestSubmissions: {
-		contest: r.one.contests({
-			from: r.contestSubmissions.contestId,
-			to: r.contests.id,
-		}),
-		problem: r.one.problems({
-			from: r.contestSubmissions.problemId,
-			to: r.problems.id,
-		}),
-		submission: r.one.submissions({
-			from: r.contestSubmissions.submissionId,
-			to: r.submissions.id,
-		}),
-	},
-	contestRegistrations: {
-		contest: r.one.contests({
-			from: r.contestRegistrations.contestId,
-			to: r.contests.id,
-		}),
-		user: r.one.user({
-			from: r.contestRegistrations.userId,
-			to: r.user.id,
-		}),
-	},
-}));
+export const relations = defineRelations(
+	{ tags, problems, problemTags, testCases, submissions, user, contests, contestProblems, contestSubmissions, contestRegistrations },
+	(r) => ({
+		problems: {
+			problemTags: r.many.problemTags({
+				from: r.problems.id,
+				to: r.problemTags.problemId,
+			}),
+			testCases: r.many.testCases({
+				from: r.problems.id,
+				to: r.testCases.problemId,
+			}),
+			author: r.one.user({
+				from: r.problems.authorId,
+				to: r.user.id,
+			}),
+			submissions: r.many.submissions({
+				from: r.problems.id,
+				to: r.submissions.problemId,
+			}),
+			contestProblems: r.many.contestProblems({
+				from: r.problems.id,
+				to: r.contestProblems.problemId,
+			}),
+		},
+		tags: {
+			problemTags: r.many.problemTags({
+				from: r.tags.id,
+				to: r.problemTags.tagId,
+			}),
+		},
+		problemTags: {
+			problem: r.one.problems({
+				from: r.problemTags.problemId,
+				to: r.problems.id,
+			}),
+			tag: r.one.tags({
+				from: r.problemTags.tagId,
+				to: r.tags.id,
+			}),
+		},
+		testCases: {
+			problem: r.one.problems({
+				from: r.testCases.problemId,
+				to: r.problems.id,
+			}),
+		},
+		submissions: {
+			problem: r.one.problems({
+				from: r.submissions.problemId,
+				to: r.problems.id,
+			}),
+			user: r.one.user({
+				from: r.submissions.userId,
+				to: r.user.id,
+			}),
+			contestSubmissions: r.many.contestSubmissions({
+				from: r.submissions.id,
+				to: r.contestSubmissions.submissionId,
+			}),
+		},
+		user: {
+			problems: r.many.problems({
+				from: r.user.id,
+				to: r.problems.authorId,
+			}),
+			submissions: r.many.submissions({
+				from: r.user.id,
+				to: r.submissions.userId,
+			}),
+			createdContests: r.many.contests({
+				from: r.user.id,
+				to: r.contests.creatorId,
+			}),
+			approvedContests: r.many.contests({
+				from: r.user.id,
+				to: r.contests.approverId,
+			}),
+			contestRegistrations: r.many.contestRegistrations({
+				from: r.user.id,
+				to: r.contestRegistrations.userId,
+			}),
+		},
+		contests: {
+			creator: r.one.user({
+				from: r.contests.creatorId,
+				to: r.user.id,
+			}),
+			approver: r.one.user({
+				from: r.contests.approverId,
+				to: r.user.id,
+			}),
+			contestProblems: r.many.contestProblems({
+				from: r.contests.id,
+				to: r.contestProblems.contestId,
+			}),
+			contestSubmissions: r.many.contestSubmissions({
+				from: r.contests.id,
+				to: r.contestSubmissions.contestId,
+			}),
+			contestRegistrations: r.many.contestRegistrations({
+				from: r.contests.id,
+				to: r.contestRegistrations.contestId,
+			}),
+		},
+		contestProblems: {
+			contest: r.one.contests({
+				from: r.contestProblems.contestId,
+				to: r.contests.id,
+			}),
+			problem: r.one.problems({
+				from: r.contestProblems.problemId,
+				to: r.problems.id,
+			}),
+		},
+		contestSubmissions: {
+			contest: r.one.contests({
+				from: r.contestSubmissions.contestId,
+				to: r.contests.id,
+			}),
+			problem: r.one.problems({
+				from: r.contestSubmissions.problemId,
+				to: r.problems.id,
+			}),
+			submission: r.one.submissions({
+				from: r.contestSubmissions.submissionId,
+				to: r.submissions.id,
+			}),
+		},
+		contestRegistrations: {
+			contest: r.one.contests({
+				from: r.contestRegistrations.contestId,
+				to: r.contests.id,
+			}),
+			user: r.one.user({
+				from: r.contestRegistrations.userId,
+				to: r.user.id,
+			}),
+		},
+	}),
+);
 
 export type Database = BunSQLDatabase<typeof schema, typeof relations>;
 
