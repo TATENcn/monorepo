@@ -7,6 +7,6 @@ import { submissionPlugin } from "./modules/submission";
 new Elysia()
 	.use(authRoutePlugin)
 	.use(openapi({ provider: "scalar" }))
-	.group("/problems", (app) => app.use(problemsPlugin))
-	.group("/submissions", (app) => app.use(submissionPlugin))
+	.group("/api/v1/problems", (app) => app.use(problemsPlugin))
+	.group("/api/v1/submissions", (app) => app.use(submissionPlugin))
 	.listen({ port: 3080 });
