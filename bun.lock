@@ -34,6 +34,7 @@
         "@nestjs/core": "^11.1.27",
         "@nestjs/platform-express": "^11.1.27",
         "drizzle-orm": "^1.0.0-beta.22",
+        "models": "workspace:",
       },
       "devDependencies": {
         "drizzle-kit": "^1.0.0-beta.22",
