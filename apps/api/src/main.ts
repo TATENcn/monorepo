@@ -1,3 +1,7 @@
+/**
+ * @fileoverview This api package is now under maintenance and no new features will be released
+ */
+
 import { openapi } from "@elysia/openapi";
 import { Elysia } from "elysia";
 import { authRoutePlugin } from "./modules/auth";
