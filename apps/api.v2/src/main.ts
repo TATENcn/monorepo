@@ -1,8 +1,11 @@
 import { Module, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { ContestModule } from "./modules/contest/contest.module";
 
-@Module({})
+@Module({
+	imports:[ContestModule]
+})
 class RootModule {}
 
 const app = await NestFactory.create(RootModule);
