@@ -8,7 +8,7 @@ import { ContestModule } from "./modules/contest/contest.module";
 })
 class RootModule {}
 
-const app = await NestFactory.create(RootModule);
+const app = await NestFactory.create<NestFastifyApplication>(RootModule, new FastifyAdapter());
 
 app.useGlobalPipes(
 	new ValidationPipe({
