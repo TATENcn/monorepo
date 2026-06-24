@@ -1,10 +1,12 @@
 import { Module, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { AuthModule } from "./modules/auth/auth.module";
 import { ContestModule } from "./modules/contest/contest.module";
 
 @Module({
-	imports:[ContestModule]
+	imports: [ContestModule, AuthModule],
 })
 class RootModule {}
 
