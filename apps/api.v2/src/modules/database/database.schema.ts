@@ -94,7 +94,10 @@ export const contests = pgTable("contests", {
 
 	approvedAt: timestamp("approved_at"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
-	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+	updatedAt: timestamp("updated_at")
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
 	deletedAt: timestamp("deleted_at"),
 	startedAt: timestamp("started_at").notNull(),
 	finishedAt: timestamp("finished_at").notNull(),
