@@ -9,3 +9,4 @@ axum = { workspace = true }
 sea-orm = { workspace = true, features = ["macros"] }
 uuid = { workspace = true, features = ["v7"] }
 chrono = { workspace = true }
+argon2 = "0.6.0-rc.8"
