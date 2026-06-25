@@ -4,3 +4,6 @@ edition.workspace = true
 version = "0.1.0"
 
 [dependencies]
+tracing = { workspace = true }
+axum = { workspace = true }
+sea-orm = { workspace = true, features = ["macros"] }
