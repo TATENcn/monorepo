@@ -3,76 +3,76 @@ import { IsEnum, IsISO8601, IsNumberString, IsOptional, IsString, IsUUID, Length
 import { type ContestType, contestTypeEnumLiteral } from "../database/database.enum";
 
 export class CreateContestRequest {
-	@ApiProperty({ name: "Contest type" })
+	@ApiProperty({ description: "Contest type", type: "string", enum: contestTypeEnumLiteral })
 	@IsString()
 	@IsEnum(Object.fromEntries(contestTypeEnumLiteral.map((v) => [v, v])))
 	type!: ContestType;
 
-	@ApiProperty({ name: "Contest title" })
+	@ApiProperty({ description: "Contest title" })
 	@IsString()
 	title!: string;
 
-	@ApiProperty({ name: "Contest description" })
+	@ApiProperty({ description: "Contest description" })
 	@IsString()
 	description!: string;
 
-	@ApiProperty({ name: "Contest start time" })
+	@ApiProperty({ description: "Contest start time" })
 	@IsISO8601()
 	startedAt!: Date;
 
-	@ApiProperty({ name: "Contest finish time" })
+	@ApiProperty({ description: "Contest finish time" })
 	@IsISO8601()
 	finishedAt!: Date;
 }
 
 export class UpdateContestFieldsRequest {
-	@ApiProperty({ name: "Contest type" })
+	@ApiProperty({ description: "Contest type", type: "string", enum: contestTypeEnumLiteral })
 	@IsOptional()
 	@IsString()
 	@IsEnum(Object.fromEntries(contestTypeEnumLiteral.map((v) => [v, v])))
 	type?: ContestType;
 
-	@ApiProperty({ name: "Contest title" })
+	@ApiProperty({ description: "Contest title" })
 	@IsOptional()
 	@IsString()
 	title?: string;
 
-	@ApiProperty({ name: "Contest description" })
+	@ApiProperty({ description: "Contest description" })
 	@IsOptional()
 	@IsString()
 	description?: string;
 
-	@ApiProperty({ name: "Contest start time" })
+	@ApiProperty({ description: "Contest start time" })
 	@IsOptional()
 	@IsISO8601()
 	startedAt?: Date;
 
-	@ApiProperty({ name: "Contest finish time" })
+	@ApiProperty({ description: "Contest finish time" })
 	@IsOptional()
 	@IsISO8601()
 	finishedAt?: Date;
 }
 
 export class UpdateContestFieldsParams {
-	@ApiProperty({ name: "Contest id" })
+	@ApiProperty({ description: "Contest id" })
 	@IsUUID()
 	id!: string;
 }
 
 export class DeleteContestRequest {
-	@ApiProperty({ name: "Contest id" })
+	@ApiProperty({ description: "Contest id" })
 	@IsUUID()
 	id!: string;
 }
 
 export class GetContestListParams {
-	@ApiProperty({ name: "Query limit" })
+	@ApiProperty({ description: "Query limit" })
 	@IsOptional()
 	@IsNumberString()
 	@Length(0, 50)
 	limit?: number;
 
-	@ApiProperty({ name: "Query offset" })
+	@ApiProperty({ description: "Query offset" })
 	@IsOptional()
 	@Length(0)
 	@IsNumberString()
@@ -80,59 +80,59 @@ export class GetContestListParams {
 }
 
 export class GetContestParams {
-	@ApiProperty({ name: "Contest id" })
+	@ApiProperty({ description: "Contest id" })
 	@IsUUID()
 	id!: string;
 }
 
 export class ApproveContestRequest {
-	@ApiProperty({ name: "Contest id" })
+	@ApiProperty({ description: "Contest id" })
 	@IsUUID()
 	id!: string;
 }
 
 export class CreateContestResponse {
-	@ApiProperty({ name: "Contest id" })
+	@ApiProperty({ description: "Contest id" })
 	id!: string;
 }
 
 export class ContestResponse {
-	@ApiProperty({ name: "Contest id" })
+	@ApiProperty({ description: "Contest id" })
 	id!: string;
 
-	@ApiProperty({ name: "Contest type" })
+	@ApiProperty({ description: "Contest type", type: "string", enum: contestTypeEnumLiteral })
 	type!: ContestType;
 
-	@ApiProperty({ name: "Creator id" })
+	@ApiProperty({ description: "Creator id" })
 	creatorId!: string;
 
-	@ApiProperty({ name: "Contest title" })
+	@ApiProperty({ description: "Contest title" })
 	title!: string;
 
-	@ApiProperty({ name: "Contest description" })
+	@ApiProperty({ description: "Contest description" })
 	description!: string;
 
-	@ApiProperty({ name: "Approval status" })
+	@ApiProperty({ description: "Approval status" })
 	approved!: boolean;
 
-	@ApiProperty({ name: "Approver id" })
+	@ApiProperty({ description: "Approver id" })
 	approverId!: string | null;
 
-	@ApiProperty({ name: "Approved at" })
+	@ApiProperty({ description: "Approved at" })
 	approvedAt!: Date | null;
 
-	@ApiProperty({ name: "Created at" })
+	@ApiProperty({ description: "Created at" })
 	createdAt!: Date;
 
-	@ApiProperty({ name: "Updated at" })
+	@ApiProperty({ description: "Updated at" })
 	updatedAt!: Date;
 
-	@ApiProperty({ name: "Deleted at" })
+	@ApiProperty({ description: "Deleted at" })
 	deletedAt!: Date | null;
 
-	@ApiProperty({ name: "Started at" })
+	@ApiProperty({ description: "Started at" })
 	startedAt!: Date;
 
-	@ApiProperty({ name: "Finished at" })
+	@ApiProperty({ description: "Finished at" })
 	finishedAt!: Date;
 }
