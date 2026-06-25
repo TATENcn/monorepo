@@ -90,3 +90,49 @@ export class ApproveContestRequest {
 	@IsUUID()
 	id!: string;
 }
+
+export class CreateContestResponse {
+	@ApiProperty({ name: "Contest id" })
+	id!: string;
+}
+
+export class ContestResponse {
+	@ApiProperty({ name: "Contest id" })
+	id!: string;
+
+	@ApiProperty({ name: "Contest type" })
+	type!: ContestType;
+
+	@ApiProperty({ name: "Creator id" })
+	creatorId!: string;
+
+	@ApiProperty({ name: "Contest title" })
+	title!: string;
+
+	@ApiProperty({ name: "Contest description" })
+	description!: string;
+
+	@ApiProperty({ name: "Approval status" })
+	approved!: boolean;
+
+	@ApiProperty({ name: "Approver id" })
+	approverId!: string | null;
+
+	@ApiProperty({ name: "Approved at" })
+	approvedAt!: Date | null;
+
+	@ApiProperty({ name: "Created at" })
+	createdAt!: Date;
+
+	@ApiProperty({ name: "Updated at" })
+	updatedAt!: Date;
+
+	@ApiProperty({ name: "Deleted at" })
+	deletedAt!: Date | null;
+
+	@ApiProperty({ name: "Started at" })
+	startedAt!: Date;
+
+	@ApiProperty({ name: "Finished at" })
+	finishedAt!: Date;
+}
