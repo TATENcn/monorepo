@@ -9,6 +9,7 @@ import type {
 	DeleteContestRequest,
 	GetContestListParams,
 	GetContestParams,
+	UpdateContestFieldsParams,
 	UpdateContestFieldsRequest,
 } from "./contest.dto";
 
@@ -36,8 +37,8 @@ export class ContestRepository {
 		return id;
 	}
 
-	public async updateContestFields(options: UpdateContestFieldsRequest, creatorId: string): Promise<void> {
-		const { id, ...fields } = options;
+	public async updateContestFields(fields: UpdateContestFieldsRequest, params: UpdateContestFieldsParams, creatorId: string): Promise<void> {
+		const { id } = params;
 
 		await this.db.db
 			.update(schema.contests)

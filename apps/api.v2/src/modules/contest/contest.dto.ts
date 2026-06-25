@@ -26,10 +26,6 @@ export class CreateContestRequest {
 }
 
 export class UpdateContestFieldsRequest {
-	@ApiProperty({ name: "Contest id" })
-	@IsUUID()
-	id!: string;
-
 	@ApiProperty({ name: "Contest type" })
 	@IsOptional()
 	@IsString()
@@ -55,6 +51,12 @@ export class UpdateContestFieldsRequest {
 	@IsOptional()
 	@IsISO8601()
 	finishedAt?: Date;
+}
+
+export class UpdateContestFieldsParams {
+	@ApiProperty({ name: "Contest id" })
+	@IsUUID()
+	id!: string;
 }
 
 export class DeleteContestRequest {
