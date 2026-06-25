@@ -7,3 +7,5 @@ version = "0.1.0"
 tracing = { workspace = true }
 axum = { workspace = true }
 sea-orm = { workspace = true, features = ["macros"] }
+uuid = { workspace = true, features = ["v7"] }
+chrono = { workspace = true }
