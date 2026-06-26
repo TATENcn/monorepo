@@ -576,10 +576,12 @@ version = "0.1.0"
 dependencies = [
  "argon2",
  "axum",
+ "base64",
  "chrono",
  "jsonwebtoken",
  "sea-orm",
  "serde",
+ "sha2 0.10.9",
  "tracing",
  "uuid",
 ]
