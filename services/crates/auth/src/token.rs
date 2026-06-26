@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 const ISSUER: &str = "auth";
 const AUDIENCE: &str = "onlinejudge";
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TokenType {
     Access,
