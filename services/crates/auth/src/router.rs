@@ -6,7 +6,7 @@ use tracing::{error, info, warn};
 use crate::{
     hash,
     models::{
-        http::{AccessTokenType, GetAccessTokenErrorResponse, TokenRequest, TokenResponse},
+        http::{AccessTokenType, TokenOperationErrorResponse, TokenRequest, TokenResponse, TokenRevocationRequest},
         refresh_tokens, users,
     },
     token::{self, TokenType},
@@ -21,7 +21,7 @@ pub struct AppState {
     pub refresh_token_ttl: u64,
 }
 
-type HandlerError = (StatusCode, Json<GetAccessTokenErrorResponse>);
+type HandlerError = (StatusCode, Json<TokenOperationErrorResponse>);
 
 pub fn router(state: AppState) -> Router {
     Router::new()
@@ -137,7 +137,7 @@ async fn token_handler(State(state): State<AppState>, Form(body): Form<TokenRequ
 }
 
 fn invalid_grant() -> HandlerError {
-    (StatusCode::BAD_REQUEST, Json(GetAccessTokenErrorResponse::InvalidGrant))
+    (StatusCode::BAD_REQUEST, Json(TokenOperationErrorResponse::InvalidGrant))
 }
 
 fn internal_error() -> HandlerError {

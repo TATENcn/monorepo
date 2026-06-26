@@ -12,7 +12,7 @@ pub enum AccessTokenType {
 /// *Partial implementation*
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "error", rename_all = "snake_case")]
-pub enum GetAccessTokenErrorResponse {
+pub enum TokenOperationErrorResponse {
     InvalidRequest,
     InvalidGrant,
     UnsupportedGrantType,
@@ -52,4 +52,11 @@ pub enum TokenResponse {
         /// The lifetime in seconds of the access token
         expires_in: u64,
     },
+}
+
+/// [RFC 7009#2.1](https://datatracker.ietf.org/doc/html/rfc7009#section-2.1)
+/// *Partial implementation*
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TokenRevocationRequest {
+    pub token: String,
 }
