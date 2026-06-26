@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::token::TokenType;
+
 /// [RFC 6749#7.1](https://datatracker.ietf.org/doc/html/rfc6749#section-7.1)
 /// *Partial implementation*
 #[derive(Debug, Serialize, Deserialize)]
@@ -59,4 +61,35 @@ pub enum TokenResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TokenRevocationRequest {
     pub token: String,
+}
+
+/// [RFC 7662#2.1](https://datatracker.ietf.org/doc/html/rfc7662#section-2.1)
+/// *Modified implementation*
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TokenIntrospectionRequest {
+    pub token: String,
+    pub token_hint: TokenType,
+}
+
+/// [RFC 7662#2.2](https://datatracker.ietf.org/doc/html/rfc7662#section-2.2)
+/// *Modified implementation*
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TokenIntrospectionResponse {
+    Successful { active: bool, username: String, token_type: TokenType },
+    Failed { active: bool },
+}
+
+impl TokenIntrospectionResponse {
+    pub fn successful(username: String, token_type: TokenType) -> Self {
+        Self::Successful {
+            active: true,
+            username,
+            token_type,
+        }
+    }
+
+    pub fn failed() -> Self {
+        Self::Failed { active: false }
+    }
 }

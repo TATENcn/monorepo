@@ -6,7 +6,7 @@ use tracing::{error, info, warn};
 use crate::{
     hash,
     models::{
-        http::{AccessTokenType, TokenOperationErrorResponse, TokenRequest, TokenResponse, TokenRevocationRequest},
+        http::{AccessTokenType, TokenIntrospectionRequest, TokenOperationErrorResponse, TokenRequest, TokenResponse, TokenRevocationRequest},
         refresh_tokens, users,
     },
     token::{self, TokenType},
@@ -29,6 +29,8 @@ pub fn router(state: AppState) -> Router {
         .route("/token", post(token_handler))
         // POST `/revoke` [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009)
         .route("/revoke", post(revoke_handler))
+        // POST `/introspect` [RFC 7662](https://datatracker.ietf.org/doc/html/rfc7662)
+        .route("/introspect", post(introspect_handler))
         .with_state(state)
 }
 
@@ -183,4 +185,11 @@ async fn revoke_handler(State(state): State<AppState>, Form(body): Form<TokenRev
     }
 
     StatusCode::OK
+}
+
+async fn introspect_handler(
+    State(state): State<AppState>,
+    Form(body): Form<TokenIntrospectionRequest>,
+) -> Result<Json<TokenOperationErrorResponse>, HandlerError> {
+    todo!()
 }
