@@ -27,6 +27,8 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         // POST `/token` [RFC 6749#2.3.1](https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1) (partial implementation)
         .route("/token", post(token_handler))
+        // POST `/revoke` [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009)
+        .route("/revoke", post(revoke_handler))
         .with_state(state)
 }
 
@@ -141,5 +143,44 @@ fn invalid_grant() -> HandlerError {
 }
 
 fn internal_error() -> HandlerError {
-    (StatusCode::INTERNAL_SERVER_ERROR, Json(GetAccessTokenErrorResponse::ServerError))
+    (StatusCode::INTERNAL_SERVER_ERROR, Json(TokenOperationErrorResponse::ServerError))
+}
+
+/// [RFC 7009#2.2](https://datatracker.ietf.org/doc/html/rfc7009#section-2.2)
+async fn revoke_handler(State(state): State<AppState>, Form(body): Form<TokenRevocationRequest>) -> StatusCode {
+    let Ok(data) = token::verify(&body.token, TokenType::Refresh, &state.public_key_pem) else {
+        warn!("revoke called with invalid or expired refresh token");
+        return StatusCode::OK;
+    };
+
+    let Ok(user_id) = uuid::Uuid::parse_str(&data.claims.sub) else {
+        warn!(sub = %data.claims.sub, "revoke called with non-UUID sub");
+        return StatusCode::OK;
+    };
+
+    let tokens = match refresh_tokens::Entity::find()
+        .filter(refresh_tokens::Column::UserId.eq(user_id))
+        .all(&state.db)
+        .await
+    {
+        Ok(t) => t,
+        Err(e) => {
+            error!(?e, %user_id, "db error fetching refresh tokens for revoke");
+            return StatusCode::OK;
+        }
+    };
+
+    let Some(stored) = tokens.iter().find(|t| hash::verify(&body.token, &t.token).unwrap_or(false)) else {
+        warn!(%user_id, "revoke called with unknown refresh token");
+        return StatusCode::OK;
+    };
+
+    // Delete the stored refresh token
+    if let Err(e) = refresh_tokens::Entity::delete_by_id(stored.id).exec(&state.db).await {
+        error!(?e, token_id = %stored.id, "failed to delete refresh token during revoke");
+    } else {
+        info!(user_id = %stored.user_id, token_id = %stored.id, "refresh token revoked");
+    }
+
+    StatusCode::OK
 }
