@@ -43,13 +43,13 @@ pub enum TokenResponse {
         access_token: String,
         token_type: AccessTokenType,
         /// The lifetime in seconds of the access token
-        expires_in: u32,
+        expires_in: u64,
         refresh_token: String,
     },
     Refresh {
         access_token: String,
         token_type: AccessTokenType,
         /// The lifetime in seconds of the access token
-        expires_in: u32,
+        expires_in: u64,
     },
 }
