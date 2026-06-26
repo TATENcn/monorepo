@@ -11,6 +11,11 @@ pub struct Model {
     /// User id
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: uuid::Uuid,
+    /// Username (lowercased)
+    #[sea_orm(unique)]
+    pub username: String,
+    /// Nickname
+    pub nickname: Option<String>,
     /// User email (lowercased)
     #[sea_orm(unique)]
     pub email: String,
@@ -30,6 +35,8 @@ impl ActiveModelBehavior for ActiveModel {
         let now: chrono::DateTime<Utc> = Utc::now();
         Self {
             id: Set(uuid::Uuid::now_v7()),
+            username: NotSet,
+            nickname: Set(None),
             email: NotSet,
             email_verified: Set(false),
             password: NotSet,
