@@ -6,7 +6,10 @@ use tracing::{error, info, warn};
 use crate::{
     hash,
     models::{
-        http::{AccessTokenType, TokenIntrospectionRequest, TokenOperationErrorResponse, TokenRequest, TokenResponse, TokenRevocationRequest},
+        http::{
+            AccessTokenType, TokenIntrospectionRequest, TokenIntrospectionResponse, TokenOperationErrorResponse, TokenRequest, TokenResponse,
+            TokenRevocationRequest,
+        },
         refresh_tokens, users,
     },
     token::{self, TokenType},
@@ -187,9 +190,54 @@ async fn revoke_handler(State(state): State<AppState>, Form(body): Form<TokenRev
     StatusCode::OK
 }
 
-async fn introspect_handler(
-    State(state): State<AppState>,
-    Form(body): Form<TokenIntrospectionRequest>,
-) -> Result<Json<TokenOperationErrorResponse>, HandlerError> {
-    todo!()
+/// [RFC 7662#2.2](https://datatracker.ietf.org/doc/html/rfc7662#section-2.2)
+async fn introspect_handler(State(state): State<AppState>, Form(body): Form<TokenIntrospectionRequest>) -> Json<TokenIntrospectionResponse> {
+    let inactive = || Json(TokenIntrospectionResponse::failed());
+
+    let Ok(data) = token::verify(&body.token, body.token_hint, &state.public_key_pem) else {
+        return inactive();
+    };
+
+    // For refresh tokens, additionally check the token hasn't been revoked
+    if body.token_hint == TokenType::Refresh {
+        let Ok(user_id) = uuid::Uuid::parse_str(&data.claims.sub) else {
+            return inactive();
+        };
+
+        let tokens = match refresh_tokens::Entity::find()
+            .filter(refresh_tokens::Column::UserId.eq(user_id))
+            .all(&state.db)
+            .await
+        {
+            Ok(t) => t,
+            Err(e) => {
+                error!(?e, %user_id, "db error during introspection");
+                return inactive();
+            }
+        };
+
+        if !tokens.iter().any(|t| hash::verify(&body.token, &t.token).unwrap_or(false)) {
+            warn!(%user_id, "refresh token not found in store");
+            return inactive();
+        }
+    }
+
+    // Look up the user to return the username
+    let Ok(user_id) = uuid::Uuid::parse_str(&data.claims.sub) else {
+        return inactive();
+    };
+
+    let user = match users::Entity::find_by_id(user_id).one(&state.db).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            warn!(%user_id, "user not found");
+            return inactive();
+        }
+        Err(e) => {
+            error!(?e, %user_id, "db error looking up user during introspection");
+            return inactive();
+        }
+    };
+
+    Json(TokenIntrospectionResponse::successful(user.username, body.token_hint))
 }
