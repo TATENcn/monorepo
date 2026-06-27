@@ -27,8 +27,8 @@ pub struct AppState {
     pub db: DatabaseConnection,
     pub private_key_pem: Vec<u8>,
     pub public_key_pem: Vec<u8>,
-    pub access_token_ttl: u64,
-    pub refresh_token_ttl: u64,
+    pub access_token_ttl_secs: u64,
+    pub refresh_token_ttl_secs: u64,
 }
 
 type HandlerError = (StatusCode, Json<TokenOperationErrorResponse>);
@@ -113,12 +113,12 @@ async fn token_handler(State(state): State<AppState>, Form(body): Form<TokenRequ
 
             let sub = user.id.to_string();
 
-            let access_token = token::generate(&sub, TokenType::Access, &state.private_key_pem, state.access_token_ttl).map_err(|e| {
+            let access_token = token::generate(&sub, TokenType::Access, &state.private_key_pem, state.access_token_ttl_secs).map_err(|e| {
                 error!(?e, user_id = %user.id, "failed to generate access token");
                 internal_error()
             })?;
 
-            let refresh_token = token::generate(&sub, TokenType::Refresh, &state.private_key_pem, state.refresh_token_ttl).map_err(|e| {
+            let refresh_token = token::generate(&sub, TokenType::Refresh, &state.private_key_pem, state.refresh_token_ttl_secs).map_err(|e| {
                 error!(?e, user_id = %user.id, "failed to generate refresh token");
                 internal_error()
             })?;
@@ -134,7 +134,7 @@ async fn token_handler(State(state): State<AppState>, Form(body): Form<TokenRequ
                 user_id: Set(user.id),
                 token: Set(token_hash),
                 created_at: Set(now),
-                expired_at: Set(now + chrono::Duration::seconds(state.refresh_token_ttl as i64)),
+                expired_at: Set(now + chrono::Duration::seconds(state.refresh_token_ttl_secs as i64)),
             }
             .insert(&state.db)
             .await
@@ -148,7 +148,7 @@ async fn token_handler(State(state): State<AppState>, Form(body): Form<TokenRequ
             Ok(Json(TokenResponse::Password {
                 access_token,
                 token_type: AccessTokenType::Bearer,
-                expires_in: state.access_token_ttl,
+                expires_in: state.access_token_ttl_secs,
                 refresh_token,
             }))
         }
@@ -178,7 +178,7 @@ async fn token_handler(State(state): State<AppState>, Form(body): Form<TokenRequ
                 return Err(invalid_grant());
             }
 
-            let access_token = token::generate(&data.claims.sub, TokenType::Access, &state.private_key_pem, state.access_token_ttl).map_err(|e| {
+            let access_token = token::generate(&data.claims.sub, TokenType::Access, &state.private_key_pem, state.access_token_ttl_secs).map_err(|e| {
                 error!(?e, sub = %data.claims.sub, "failed to generate access token");
                 internal_error()
             })?;
@@ -188,7 +188,7 @@ async fn token_handler(State(state): State<AppState>, Form(body): Form<TokenRequ
             Ok(Json(TokenResponse::Refresh {
                 access_token,
                 token_type: AccessTokenType::Bearer,
-                expires_in: state.access_token_ttl,
+                expires_in: state.access_token_ttl_secs,
             }))
         }
     }
