@@ -8,58 +8,35 @@ use containerd_client::{
 use tracing::info;
 
 use judge_core_manager::{
-    pool::{AgentPool, PoolConfig, PoolError},
+    config::ManagerConfig,
+    pool::{AgentPool, PoolError},
     provisioner::{ContainerdProvisioner, ProvisionError},
     router,
-    scaler::ScalerConfig,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), ManagerError> {
     tracing_subscriber::fmt::init();
 
-    let connection = connect("/run/containerd/containerd.sock").await?;
+    let config = ManagerConfig::load()?;
+    info!(?config, "configuration loaded");
+
+    let connection = connect(&config.server.containerd_socket).await?;
 
     info!(version = containerd_version(connection.clone()).await?, "containerd connected");
 
-    let provisioner = ContainerdProvisioner::new(connection, "docker.io/library/judge-core:latest");
-
-    let pool = Arc::new(
-        AgentPool::new(
-            PoolConfig {
-                max_queue_size: 1000,
-                max_retries: 3,
-                task_timeout: Duration::from_secs(45),
-                health_check_interval: Duration::from_secs(5),
-                health_check_failure_threshold: 3,
-                max_concurrent_per_agent: 5,
-            },
-            provisioner,
-        )
-        .await,
-    );
+    let provisioner = ContainerdProvisioner::new(connection, &config.server.image, &config.provisioner.namespace, &config.provisioner.runtime);
+    let pool = Arc::new(AgentPool::new(config.pool.clone(), provisioner).await);
 
     pool.discover_agents().await?;
     info!(metrics = ?pool.metrics().await, "agents discovered");
 
     // WARNING: a huge number of agents may lead to OOM or excessive CPU usage
-    pool.clone().start_autoscaler(ScalerConfig {
-        min_agents: 2,
-        max_agents: 5,
-        scale_down_utilization_pct: 0.3,
-        scale_up_cooldown_secs: 5,
-        scale_down_cooldown_secs: 300,
-        check_interval_secs: 10,
-        provision_time_secs: 30,
-        max_scale_up_batch: 3,
-        scale_down_confirm_ticks: 3,
-        ema_alpha: 0.3,
-        max_concurrent_per_agent: 5,
-    });
+    pool.clone().start_autoscaler(config.scaler.clone());
 
     let app = router::create_router(pool.clone());
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8000").await?;
-    info!("HTTP server listening on 0.0.0.0:8000");
+    let listener = tokio::net::TcpListener::bind(&config.server.bind_address).await?;
+    info!("HTTP server listening on {}", config.server.bind_address);
     info!("manager ready");
 
     axum::serve(listener, app)
@@ -95,6 +72,8 @@ pub enum ManagerError {
     Provision(#[from] ProvisionError),
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    #[error("config error: {0}")]
+    Config(#[from] config::ConfigError),
 }
 
 impl From<containerd_client::tonic::Status> for ManagerError {

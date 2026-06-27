@@ -20,32 +20,8 @@ use tokio::{
 };
 use tracing::{debug, error, info, warn};
 
+use crate::config::PoolConfig;
 use crate::provisioner::{ContainerdProvisioner, ProvisionError};
-
-const DRAIN_CHECK_INTERVAL_SECS: u64 = 5;
-
-#[derive(Debug, Clone)]
-pub struct PoolConfig {
-    pub max_queue_size: usize,
-    pub max_retries: u32,
-    pub task_timeout: Duration,
-    pub health_check_interval: Duration,
-    pub health_check_failure_threshold: u32,
-    pub max_concurrent_per_agent: u32,
-}
-
-impl Default for PoolConfig {
-    fn default() -> Self {
-        Self {
-            max_queue_size: 1000,
-            max_retries: 3,
-            task_timeout: Duration::from_secs(45),
-            health_check_interval: Duration::from_secs(5),
-            health_check_failure_threshold: 3,
-            max_concurrent_per_agent: 5,
-        }
-    }
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum PoolError {
@@ -107,6 +83,8 @@ impl AgentPool {
         let agent_available = Arc::new(Notify::new());
         let provisioner = Arc::new(provisioner);
 
+        let drain_check_interval_secs = config.drain_check_interval_secs;
+
         let pool = Self {
             config: config.clone(),
             agents: agents.clone(),
@@ -134,7 +112,7 @@ impl AgentPool {
             pool.config.health_check_failure_threshold,
         ));
 
-        tokio::spawn(drain_loop(agents.clone(), provisioner));
+        tokio::spawn(drain_loop(agents.clone(), provisioner, drain_check_interval_secs));
 
         pool
     }
@@ -277,7 +255,7 @@ impl AgentPool {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn start_autoscaler(self: Arc<Self>, config: crate::scaler::ScalerConfig) {
+    pub fn start_autoscaler(self: Arc<Self>, config: crate::config::ScalerConfig) {
         tokio::spawn(crate::scaler::AutoScaler::run(self, config));
     }
 
@@ -538,8 +516,8 @@ async fn health_check_loop(agents: Arc<RwLock<Vec<AgentHandle>>>, agent_availabl
     }
 }
 
-async fn drain_loop(agents: Arc<RwLock<Vec<AgentHandle>>>, provisioner: Arc<ContainerdProvisioner>) {
-    let mut ticker = interval(Duration::from_secs(DRAIN_CHECK_INTERVAL_SECS));
+async fn drain_loop(agents: Arc<RwLock<Vec<AgentHandle>>>, provisioner: Arc<ContainerdProvisioner>, drain_check_interval_secs: u64) {
+    let mut ticker = interval(Duration::from_secs(drain_check_interval_secs));
 
     loop {
         ticker.tick().await;

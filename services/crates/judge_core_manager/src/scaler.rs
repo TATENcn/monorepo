@@ -8,40 +8,8 @@ use judge_core_shared::models::http::PoolMetrics;
 use tokio::time::interval;
 use tracing::{debug, error, info};
 
+use crate::config::ScalerConfig;
 use crate::pool::AgentPool;
-
-#[derive(Debug, Clone)]
-pub struct ScalerConfig {
-    pub min_agents: usize,
-    pub max_agents: usize,
-    pub scale_down_utilization_pct: f64,
-    pub scale_up_cooldown_secs: u64,
-    pub scale_down_cooldown_secs: u64,
-    pub check_interval_secs: u64,
-    pub provision_time_secs: u64,
-    pub max_scale_up_batch: usize,
-    pub scale_down_confirm_ticks: u32,
-    pub ema_alpha: f64,
-    pub max_concurrent_per_agent: u32,
-}
-
-impl Default for ScalerConfig {
-    fn default() -> Self {
-        Self {
-            min_agents: 2,
-            max_agents: 10,
-            scale_down_utilization_pct: 0.3,
-            scale_up_cooldown_secs: 5,
-            scale_down_cooldown_secs: 300,
-            check_interval_secs: 10,
-            provision_time_secs: 30,
-            max_scale_up_batch: 3,
-            scale_down_confirm_ticks: 3,
-            ema_alpha: 0.3,
-            max_concurrent_per_agent: 5,
-        }
-    }
-}
 
 struct QueueVelocityTracker {
     prev_queue_size: usize,

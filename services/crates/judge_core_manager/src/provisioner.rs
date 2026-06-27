@@ -25,17 +25,16 @@ use tokio::{fs, io};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-const NAMESPACE: &str = "judge-core";
 const AGENT_LABEL_KEY: &str = "judge-core.agent";
 const AGENT_LABEL_VALUE: &str = "true";
 const SOCKET_WAIT_TIMEOUT_SECS: u64 = 30;
 const SOCKET_WAIT_INTERVAL_MS: u64 = 100;
 
-const RUNTIME: &str = "io.containerd.runc.v2";
-
 pub struct ContainerdProvisioner {
     channel: Channel,
     image: String,
+    namespace: String,
+    runtime: String,
     socket_base: PathBuf,
     chain_id: OnceCell<String>,
 }
@@ -55,10 +54,12 @@ pub enum ProvisionError {
 }
 
 impl ContainerdProvisioner {
-    pub fn new(channel: Channel, image: impl Into<String>) -> Self {
+    pub fn new(channel: Channel, image: impl Into<String>, namespace: impl Into<String>, runtime: impl Into<String>) -> Self {
         Self {
             channel,
             image: image.into(),
+            namespace: namespace.into(),
+            runtime: runtime.into(),
             socket_base: PathBuf::from("/run/judge-core/agents"),
             chain_id: OnceCell::new(),
         }
@@ -78,6 +79,7 @@ impl ContainerdProvisioner {
         debug!(agent_id = %id, image = %self.image, parent = %parent_digest, "resolved image chain id");
 
         let snapshotter = "overlayfs";
+        let namespace = &self.namespace;
         let mut snapshots_client = SnapshotsClient::new(self.channel.clone());
         let prepare_req = with_namespace!(
             PrepareSnapshotRequest {
@@ -86,7 +88,7 @@ impl ContainerdProvisioner {
                 parent: parent_digest,
                 labels: Default::default(),
             },
-            NAMESPACE
+            namespace
         );
         snapshots_client.prepare(prepare_req).await?;
         info!(agent_id = %id, snapshotter = %snapshotter, "snapshot prepared");
@@ -96,7 +98,7 @@ impl ContainerdProvisioner {
                 snapshotter: snapshotter.to_string(),
                 key: id.clone(),
             },
-            NAMESPACE
+            namespace
         );
         let mounts_resp = snapshots_client.mounts(mounts_req).await?;
         let rootfs_mounts = mounts_resp.into_inner().mounts;
@@ -109,7 +111,7 @@ impl ContainerdProvisioner {
             id: id.clone(),
             image: self.image.clone(),
             runtime: Some(Runtime {
-                name: RUNTIME.to_owned(),
+                name: self.runtime.clone(),
                 options: None,
             }),
             spec: Some(spec),
@@ -120,7 +122,7 @@ impl ContainerdProvisioner {
         };
 
         let req = CreateContainerRequest { container: Some(container) };
-        let req = with_namespace!(req, NAMESPACE);
+        let req = with_namespace!(req, namespace);
 
         containers_client.create(req).await?;
         info!(agent_id = %id, "container created");
@@ -132,7 +134,7 @@ impl ContainerdProvisioner {
             rootfs: rootfs_mounts,
             ..Default::default()
         };
-        let req = with_namespace!(req, NAMESPACE);
+        let req = with_namespace!(req, namespace);
 
         tasks_client.create(req).await?;
         info!(agent_id = %id, "task created");
@@ -141,7 +143,7 @@ impl ContainerdProvisioner {
             container_id: id.clone(),
             ..Default::default()
         };
-        let req = with_namespace!(req, NAMESPACE);
+        let req = with_namespace!(req, namespace);
 
         tasks_client.start(req).await?;
         info!(agent_id = %id, "task started");
@@ -156,13 +158,14 @@ impl ContainerdProvisioner {
     #[tracing::instrument(skip(self))]
     pub async fn destroy(&self, id: &str) -> Result<(), ProvisionError> {
         let mut tasks_client = TasksClient::new(self.channel.clone());
+        let namespace = &self.namespace;
 
         let req = KillRequest {
             container_id: id.to_string(),
             signal: libc::SIGINT as u32,
             ..Default::default()
         };
-        let req = with_namespace!(req, NAMESPACE);
+        let req = with_namespace!(req, namespace);
 
         if let Err(e) = tasks_client.kill(req).await {
             debug!(agent_id = id, error = %e, "failed to kill task (may already be stopped)");
@@ -173,7 +176,7 @@ impl ContainerdProvisioner {
             container_id: id.to_string(),
             exec_id: String::new(),
         };
-        let wait_req = with_namespace!(wait_req, NAMESPACE);
+        let wait_req = with_namespace!(wait_req, namespace);
         match timeout(Duration::from_secs(90), tasks_client.wait(wait_req)).await {
             Ok(Ok(_)) => debug!(agent_id = id, "task exited"),
             Ok(Err(e)) => warn!(agent_id = id, error = %e, "wait for task exit returned error"),
@@ -181,7 +184,7 @@ impl ContainerdProvisioner {
         }
 
         let req = DeleteTaskRequest { container_id: id.to_string() };
-        let req = with_namespace!(req, NAMESPACE);
+        let req = with_namespace!(req, namespace);
 
         if let Err(e) = tasks_client.delete(req).await {
             warn!(agent_id = id, error = %e, "failed to delete task, container will be retained for retry");
@@ -191,7 +194,7 @@ impl ContainerdProvisioner {
         let mut containers_client = ContainersClient::new(self.channel.clone());
 
         let req = DeleteContainerRequest { id: id.to_string() };
-        let req = with_namespace!(req, NAMESPACE);
+        let req = with_namespace!(req, namespace);
 
         containers_client.delete(req).await?;
 
@@ -202,7 +205,7 @@ impl ContainerdProvisioner {
                 snapshotter: snapshotter.to_string(),
                 key: id.to_string(),
             },
-            NAMESPACE
+            namespace
         );
         if let Err(e) = snapshots_client.remove(remove_req).await {
             debug!(agent_id = id, error = %e, "failed to remove snapshot (may already be removed)");
@@ -225,7 +228,7 @@ impl ContainerdProvisioner {
         let req = ListContainersRequest {
             filters: vec![format!("labels.\"{}\"=={}", AGENT_LABEL_KEY, AGENT_LABEL_VALUE)],
         };
-        let req = with_namespace!(req, NAMESPACE);
+        let req = with_namespace!(req, &self.namespace);
 
         let resp = containers_client.list(req).await?;
         let ids = resp.into_inner().containers.into_iter().map(|c| c.id).collect();
@@ -243,8 +246,9 @@ impl ContainerdProvisioner {
     async fn compute_chain_id_from_image(&self) -> Result<String, ProvisionError> {
         use oci_spec::image::{Arch, Os};
 
+        let namespace = &self.namespace;
         let mut images_client = ImagesClient::new(self.channel.clone());
-        let get_image_req = with_namespace!(GetImageRequest { name: self.image.clone() }, NAMESPACE);
+        let get_image_req = with_namespace!(GetImageRequest { name: self.image.clone() }, namespace);
         let image_resp = images_client.get(get_image_req).await?;
         let image = image_resp
             .into_inner()
@@ -298,7 +302,7 @@ impl ContainerdProvisioner {
                 offset: 0,
                 size,
             },
-            NAMESPACE
+            &self.namespace
         );
         let mut stream = content_client.read(req).await?.into_inner();
         let mut data = Vec::new();
