@@ -9,8 +9,6 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("judge-core error: {0}")]
     JudgeCore(#[from] JudgeCoreError),
-    #[error("RABBIT_MQ_URL environment variable not set")]
-    MissingRabbitMqUrl,
-    #[error("JUDGE_CORE_URL environment variable not set")]
-    MissingJudgeCoreUrl,
+    #[error("config error: {0}")]
+    Config(#[from] config::ConfigError),
 }

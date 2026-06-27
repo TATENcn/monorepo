@@ -1,7 +1,9 @@
+mod config;
 mod error;
 mod message;
 mod rabbitmq;
 
+use config::ProcessorConfig;
 use error::Error;
 use futures_util::StreamExt;
 use judge_core_sdk::JudgeCoreClient;
@@ -12,24 +14,23 @@ use lapin::{
     types::FieldTable,
 };
 use message::{ResultMessage, SubmitMessage};
-use rabbitmq::{RESULT_ROUTE, SUBMIT_QUEUE};
+use rabbitmq::RabbitMqTopology;
 use tracing::{error, info};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt::init();
 
-    let rabbitmq_url = std::env::var("RABBIT_MQ_URL").map_err(|_| Error::MissingRabbitMqUrl)?;
-    let judge_core_url = std::env::var("JUDGE_CORE_URL").map_err(|_| Error::MissingJudgeCoreUrl)?;
-    let using_standalone = std::env::var("JUDGE_CORE_STANDALONE")
-        .map(|v| v.to_ascii_lowercase() == "true")
-        .unwrap_or(false);
+    let config = ProcessorConfig::load()?;
+    info!(?config, "configuration loaded");
 
-    let conn = rabbitmq::init(&rabbitmq_url).await?;
+    let topology = RabbitMqTopology::from(&config.rabbitmq);
+
+    let conn = rabbitmq::init(&config.rabbitmq.url, &topology).await?;
     let channel = conn.create_channel().await?;
-    let client = JudgeCoreClient::new(judge_core_url, using_standalone);
+    let client = JudgeCoreClient::new(&config.judge_core.url, config.judge_core.standalone);
 
-    if !using_standalone {
+    if !config.judge_core.standalone {
         client.acceptable().await?;
     }
     info!("judge-core available");
@@ -38,14 +39,14 @@ async fn main() -> Result<(), Error> {
 
     let mut consumer = channel
         .basic_consume(
-            SUBMIT_QUEUE.into(),
+            topology.submit_queue.clone().into(),
             "submission-processor".into(),
             BasicConsumeOptions::default(),
             FieldTable::default(),
         )
         .await?;
 
-    info!("consuming from {}", SUBMIT_QUEUE);
+    info!("consuming from {}", topology.submit_queue);
 
     loop {
         tokio::select! {
@@ -57,6 +58,7 @@ async fn main() -> Result<(), Error> {
                             &publish_channel,
                             &delivery.data,
                             &delivery.acker,
+                            &topology,
                         )
                         .await;
 
@@ -90,7 +92,13 @@ async fn main() -> Result<(), Error> {
 /// # Returns
 /// Some(submission_id) on success
 /// None on failure (message not acked, it will be redelivered)
-async fn process_message(client: &JudgeCoreClient, publish_channel: &Channel, body: &[u8], acker: &lapin::Acker) -> Option<String> {
+async fn process_message(
+    client: &JudgeCoreClient,
+    publish_channel: &Channel,
+    body: &[u8],
+    acker: &lapin::Acker,
+    topology: &RabbitMqTopology,
+) -> Option<String> {
     let submit_msg: SubmitMessage = match serde_json::from_slice(body) {
         Ok(m) => m,
         Err(e) => {
@@ -112,8 +120,8 @@ async fn process_message(client: &JudgeCoreClient, publish_channel: &Channel, bo
 
             if let Err(e) = publish_channel
                 .basic_publish(
-                    rabbitmq::EXCHANGE_NAME.into(),
-                    RESULT_ROUTE.into(),
+                    topology.exchange_name.clone().into(),
+                    topology.result_route.clone().into(),
                     BasicPublishOptions::default(),
                     &payload,
                     BasicProperties::default(),

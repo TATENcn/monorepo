@@ -5,16 +5,31 @@ use lapin::{
 };
 use tracing::info;
 
+use crate::config::RabbitMqConfig;
 use crate::error::Error;
 
-pub const EXCHANGE_NAME: &str = "online-judge.exchange";
-pub const SUBMIT_QUEUE: &str = "submit.queue";
-pub const SUBMIT_ROUTE: &str = "submit";
-pub const RESULT_QUEUE: &str = "result.queue";
-pub const RESULT_ROUTE: &str = "result";
+pub struct RabbitMqTopology {
+    pub exchange_name: String,
+    pub submit_queue: String,
+    pub submit_route: String,
+    pub result_queue: String,
+    pub result_route: String,
+}
+
+impl From<&RabbitMqConfig> for RabbitMqTopology {
+    fn from(config: &RabbitMqConfig) -> Self {
+        Self {
+            exchange_name: config.exchange_name.clone(),
+            submit_queue: config.submit_queue.clone(),
+            submit_route: config.submit_route.clone(),
+            result_queue: config.result_queue.clone(),
+            result_route: config.result_route.clone(),
+        }
+    }
+}
 
 /// Initialize RabbitMQ topology
-pub async fn init(url: &str) -> Result<Connection, Error> {
+pub async fn init(url: &str, topology: &RabbitMqTopology) -> Result<Connection, Error> {
     let conn = Connection::connect(url, ConnectionProperties::default()).await?;
     info!("connected to RabbitMQ");
 
@@ -22,7 +37,7 @@ pub async fn init(url: &str) -> Result<Connection, Error> {
 
     channel
         .exchange_declare(
-            EXCHANGE_NAME.into(),
+            topology.exchange_name.clone().into(),
             ExchangeKind::Direct,
             ExchangeDeclareOptions {
                 durable: true,
@@ -34,7 +49,7 @@ pub async fn init(url: &str) -> Result<Connection, Error> {
 
     channel
         .queue_declare(
-            SUBMIT_QUEUE.into(),
+            topology.submit_queue.clone().into(),
             QueueDeclareOptions {
                 durable: true,
                 ..Default::default()
@@ -44,9 +59,9 @@ pub async fn init(url: &str) -> Result<Connection, Error> {
         .await?;
     channel
         .queue_bind(
-            SUBMIT_QUEUE.into(),
-            EXCHANGE_NAME.into(),
-            SUBMIT_ROUTE.into(),
+            topology.submit_queue.clone().into(),
+            topology.exchange_name.clone().into(),
+            topology.submit_route.clone().into(),
             QueueBindOptions::default(),
             FieldTable::default(),
         )
@@ -54,7 +69,7 @@ pub async fn init(url: &str) -> Result<Connection, Error> {
 
     channel
         .queue_declare(
-            RESULT_QUEUE.into(),
+            topology.result_queue.clone().into(),
             QueueDeclareOptions {
                 durable: true,
                 ..Default::default()
@@ -64,9 +79,9 @@ pub async fn init(url: &str) -> Result<Connection, Error> {
         .await?;
     channel
         .queue_bind(
-            RESULT_QUEUE.into(),
-            EXCHANGE_NAME.into(),
-            RESULT_ROUTE.into(),
+            topology.result_queue.clone().into(),
+            topology.exchange_name.clone().into(),
+            topology.result_route.clone().into(),
             QueueBindOptions::default(),
             FieldTable::default(),
         )
