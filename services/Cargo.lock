@@ -4618,7 +4618,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "submission-processor"
+name = "submission_processor"
 version = "0.1.0"
 dependencies = [
  "config",
