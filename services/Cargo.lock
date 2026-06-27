@@ -128,7 +128,12 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 name = "api_server"
 version = "0.1.0"
 dependencies = [
+ "auth",
+ "config",
+ "config_macro",
  "sea-orm",
+ "serde",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "tracing-subscriber",
