@@ -1,0 +1,33 @@
+# Judge Core Manager
+# Copy to ./config/manager.toml and adjust as needed
+
+[pool]
+max_queue_size = 1000
+max_retries = 3
+task_timeout = 60
+health_check_interval = 10
+health_check_failure_threshold = 3
+max_concurrent_per_agent = 5
+drain_check_interval_secs = 5
+
+[scaler]
+min_agents = 2
+max_agents = 10
+scale_down_utilization_pct = 0.3
+scale_up_cooldown_secs = 5
+scale_down_cooldown_secs = 300
+check_interval_secs = 10
+provision_time_secs = 30
+max_scale_up_batch = 3
+scale_down_confirm_ticks = 3
+ema_alpha = 0.3
+max_concurrent_per_agent = 5
+
+[server]
+bind_address = "0.0.0.0:8000"
+containerd_socket = "/run/containerd/containerd.sock"
+image = "docker.io/library/judge-core:latest"
+
+[provisioner]
+namespace = "judge-core"
+runtime = "io.containerd.runc.v2"
