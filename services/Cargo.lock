@@ -130,6 +130,7 @@ version = "0.1.0"
 dependencies = [
  "auth",
  "axum",
+ "chrono",
  "config",
  "config_macro",
  "sea-orm",
@@ -138,6 +139,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
