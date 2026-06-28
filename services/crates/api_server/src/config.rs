@@ -1,5 +1,8 @@
+use auth::router::AppState as AuthAppState;
 use config::{Config, ConfigError, Environment, File};
+use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
+use tokio::{fs, io};
 
 #[config_macro::config]
 #[derive(Debug, Deserialize, Serialize)]
@@ -56,5 +59,18 @@ impl ApiServerConfig {
             .build()?;
 
         config.try_deserialize()
+    }
+
+    pub async fn to_auth_app_state(&self, db: DatabaseConnection) -> Result<AuthAppState, io::Error> {
+        let private = fs::read(&self.auth.private_key_pem_filepath).await?;
+        let public = fs::read(&self.auth.private_key_pem_filepath).await?;
+
+        Ok(AuthAppState {
+            db,
+            private_key_pem: private,
+            public_key_pem: public,
+            access_token_ttl_secs: self.auth.access_token_ttl_secs,
+            refresh_token_ttl_secs: self.auth.access_token_ttl_secs,
+        })
     }
 }
