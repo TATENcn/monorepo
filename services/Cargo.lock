@@ -129,6 +129,7 @@ name = "api_server"
 version = "0.1.0"
 dependencies = [
  "auth",
+ "axum",
  "config",
  "config_macro",
  "sea-orm",

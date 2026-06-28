@@ -9,6 +9,15 @@ use tokio::{fs, io};
 pub struct ApiServerConfig {
     #[serde(default)]
     pub auth: AuthConfig,
+    #[serde(default)]
+    pub database: DatabaseConfig,
+}
+
+#[config_macro::config]
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DatabaseConfig {
+    #[config_val(default = "postgresql://postgres:postgres@localhost:5432/taten".into())]
+    pub database_url: String,
 }
 
 #[config_macro::config]
