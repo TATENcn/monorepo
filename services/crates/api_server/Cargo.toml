@@ -16,3 +16,4 @@ thiserror = { workspace = true }
 axum = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+api_server_db = { path = "../api_server_db" }

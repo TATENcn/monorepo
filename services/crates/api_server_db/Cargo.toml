@@ -1,0 +1,11 @@
+[package]
+name = "api_server_db"
+edition.workspace = true
+version = "0.1.0"
+
+[dependencies]
+sea-orm = { workspace = true, features = ["macros", "sqlx-postgres", "runtime-tokio-rustls"] }
+auth = { path = "../auth" }
+serde = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
