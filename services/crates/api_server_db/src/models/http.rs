@@ -8,11 +8,10 @@ use super::enums::{CaseType, Difficulty};
 #[serde(rename_all = "camelCase")]
 pub struct ListProblemQueries {
     pub limit: Option<u64>,
-    pub offset: Option<u64>,
+    pub page: Option<u64>,
     pub query: Option<String>,
     pub difficulty: Option<Difficulty>,
-    // TODO: Redesign this query
-    // pub tag: Option<Vec<Uuid>>,
+    pub tag: Option<Vec<Uuid>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,12 +27,13 @@ pub struct ListProblemResponseItem {
 #[serde(rename_all = "camelCase")]
 pub struct ListProblemResponse {
     pub problems: Vec<ListProblemResponseItem>,
+    pub total: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProblemStatResponse {
-    pub total: i64,
+    pub total: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,11 +81,20 @@ pub struct CreateProblemRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UpdateProblemLimit {
+    pub cpu_time_ms: Option<u64>,
+    pub wall_time_ms: Option<u64>,
+    pub memory_bytes: Option<u64>,
+    pub output_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateProblemRequest {
     pub title: Option<String>,
     pub description: Option<String>,
     pub difficulty: Option<Difficulty>,
-    pub limit: Option<ProblemLimit>,
+    pub limit: Option<UpdateProblemLimit>,
     pub tags: Option<Vec<Uuid>>,
 }
 
