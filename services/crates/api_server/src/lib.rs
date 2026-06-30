@@ -3,6 +3,7 @@ use sea_orm::DbErr;
 use tokio::io;
 
 pub mod config;
+pub mod routers;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ApiServerError {
