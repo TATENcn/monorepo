@@ -1,3 +1,5 @@
+use std::fmt;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -11,6 +13,7 @@ pub struct ListProblemQueries {
     pub page: Option<u64>,
     pub query: Option<String>,
     pub difficulty: Option<Difficulty>,
+    #[serde(default, deserialize_with = "deserialize_tag_option")]
     pub tag: Option<Vec<Uuid>>,
 }
 
@@ -117,4 +120,53 @@ pub struct TestCaseInput {
 #[serde(rename_all = "camelCase")]
 pub struct CreateProblemResponse {
     pub id: Uuid,
+}
+
+/// ### Accepts
+/// - Absent key => [`None`]
+/// - Single value (`?tag=id`) => [`Some(vec![id])`]
+/// - Comma-separated values (`?tag=id1,id2`) => [`Some(vec![id1, id2])`]
+fn deserialize_tag_option<'de, D>(deserializer: D) -> Result<Option<Vec<Uuid>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct TagVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for TagVisitor {
+        type Value = Option<Vec<Uuid>>;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a UUID or comma-separated list of UUIDs")
+        }
+
+        fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+            let uuids: Vec<Uuid> = v
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| Uuid::parse_str(s).map_err(E::custom))
+                .collect::<Result<_, _>>()?;
+            if uuids.is_empty() { Ok(None) } else { Ok(Some(uuids)) }
+        }
+
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+            let mut vec = Vec::new();
+            while let Some(val) = seq.next_element::<&str>()? {
+                if !val.is_empty() {
+                    vec.push(Uuid::parse_str(val).map_err(serde::de::Error::custom)?);
+                }
+            }
+            if vec.is_empty() { Ok(None) } else { Ok(Some(vec)) }
+        }
+    }
+
+    deserializer.deserialize_any(TagVisitor)
 }
