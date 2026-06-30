@@ -151,6 +151,7 @@ dependencies = [
  "chrono",
  "sea-orm",
  "serde",
+ "thiserror 2.0.18",
  "uuid",
 ]
 
