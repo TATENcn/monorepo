@@ -7,7 +7,7 @@ version = "0.1.0"
 tracing = { workspace = true }
 axum = { workspace = true }
 sea-orm = { workspace = true, features = ["macros"] }
-uuid = { workspace = true, features = ["v7"] }
+uuid = { workspace = true, features = ["v7", "serde"] }
 chrono = { workspace = true }
 argon2 = "0.6.0-rc.8"
 jsonwebtoken = "10.4.0"
