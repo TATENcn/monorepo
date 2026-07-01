@@ -5,12 +5,13 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder as AutoBuilder;
 use tokio::io;
 use tokio::net::TcpListener;
+use tokio::task::JoinSet;
 use tracing::{error, info};
 
 pub mod config;
 
 async fn handle_request(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, hyper::http::Error> {
-    info!(method = ?req.method(), uri = ?req.uri(), version = ?req.version(), "received connection");
+    info!(method = ?req.method(), uri = ?req.uri(), version = ?req.version(), "received request");
 
     let body = format!("Hello world!\n");
 
@@ -27,20 +28,38 @@ async fn main() -> Result<(), GatewayError> {
     let config = config::GatewayConfig::load()?;
     let listener = TcpListener::bind(config.addr).await?;
 
-    loop {
-        let (stream, addr) = listener.accept().await?;
-        info!(?addr, "accepted connection");
+    let mut handles = JoinSet::new();
 
-        tokio::spawn(async move {
-            if let Err(err) = AutoBuilder::new(TokioExecutor::new())
-                .serve_connection(TokioIo::new(stream), hyper::service::service_fn(handle_request))
-                .await
-            {
-                error!(?err, "unexpected error occurred")
-            }
-        });
+    loop {
+        tokio::select! {
+            result = listener.accept() => {
+                let (stream, addr) = result?;
+                info!(?addr, "accepted connection");
+
+                handles.spawn(async move {
+                    if let Err(err) = AutoBuilder::new(TokioExecutor::new())
+                        .serve_connection(TokioIo::new(stream), hyper::service::service_fn(handle_request))
+                        .await
+                    {
+                        error!(?err, "unexpected error occurred")
+                    }
+                });
+            },
+            _ = tokio::signal::ctrl_c() => {
+                info!("received SIGINT");
+                break;
+            },
+        }
     }
 
+    // Release the port immediately
+    drop(listener);
+
+    // Wait for in-flight connections
+    info!(pending = handles.len(), "waiting for in-flight connections to drain");
+    while let Some(_) = handles.join_next().await {}
+
+    info!("shutdown complete");
     Ok(())
 }
 
