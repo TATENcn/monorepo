@@ -1,0 +1,12 @@
+jwks_url: "localhost:40301"
+addr: "localhost:10294"
+upstream_timeout_secs: 30
+
+routes:
+  - path: /
+    auth: none
+    rate_limit:
+      per_sec: 10
+      burst: 60
+    upstream: localhost:30301
+    match_type: prefix
