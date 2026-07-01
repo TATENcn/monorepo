@@ -1761,7 +1761,12 @@ dependencies = [
 name = "gateway"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "config",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "serde",
  "thiserror 2.0.18",
  "tokio",
