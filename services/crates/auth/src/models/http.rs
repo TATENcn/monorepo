@@ -103,11 +103,19 @@ pub struct JwksResponse {
 /// [RFC 7517#4](https://datatracker.ietf.org/doc/html/rfc7517#section-4)
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Jwk {
+    /// Key type (such as `RSA` and `EC`)
     pub kty: String,
-    pub crv: String,
+    /// The intended use of the public key
+    /// `sig` (signature) or `enc` (encryption)
     #[serde(rename = "use")]
     pub use_: String,
+    /// Algorithm
     pub alg: String,
+    /// Key ID
     pub kid: String,
+
+    /// Which curve to use
+    pub crv: String,
+    /// Base64 URL-encoded 32-byte public key
     pub x: String,
 }
