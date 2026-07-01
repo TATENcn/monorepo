@@ -1819,13 +1819,17 @@ dependencies = [
 name = "gateway"
 version = "0.1.0"
 dependencies = [
+ "auth",
+ "base64",
  "bytes",
  "config",
  "http",
  "http-body-util",
  "hyper",
  "hyper-util",
+ "jsonwebtoken",
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

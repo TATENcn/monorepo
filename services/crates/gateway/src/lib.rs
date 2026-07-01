@@ -6,6 +6,7 @@ use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use std::{sync::LazyLock, time::Duration};
 
 pub mod config;
+pub mod jwks;
 
 pub static HTTP_CLIENT: LazyLock<Client<HttpConnector, Full<Bytes>>> = LazyLock::new(|| {
     Client::builder(TokioExecutor::new())
