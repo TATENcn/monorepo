@@ -66,10 +66,10 @@ async fn jwks_handler(State(state): State<Arc<AppState>>) -> Result<Json<JwksRes
 
     Ok(Json(JwksResponse {
         keys: vec![Jwk {
-            kty: "OKP",
-            crv: "Ed25519",
-            use_: "sig",
-            alg: "EdDSA",
+            kty: "OKP".into(),
+            crv: "Ed25519".into(),
+            use_: "sig".into(),
+            alg: "EdDSA".into(),
             kid,
             x,
         }],
