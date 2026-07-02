@@ -5,6 +5,7 @@ use std::time::Duration;
 use auth::models::http::JwksResponse;
 use base64::Engine;
 use http_body_util::BodyExt;
+use tokio::task::JoinHandle;
 use tokio::time;
 use tracing::{info, warn};
 
@@ -46,6 +47,7 @@ pub struct JwksManager {
     cache: Arc<RwLock<Option<JwksCache>>>,
     jwks_url: String,
     refresh_interval: Duration,
+    refresh_handle: Option<JoinHandle<()>>,
 }
 
 impl JwksManager {
@@ -54,17 +56,18 @@ impl JwksManager {
             cache: Arc::new(RwLock::new(None)),
             jwks_url,
             refresh_interval: refresh_interval_secs,
+            refresh_handle: None,
         };
         manager.refresh().await?;
         Ok(manager)
     }
 
-    pub fn start_background_refresh(&self) {
+    pub fn start_background_refresh(&mut self) {
         let cache = self.cache.clone();
         let jwks_url = self.jwks_url.clone();
         let interval = self.refresh_interval;
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut timer = time::interval(interval);
 
             loop {
@@ -82,6 +85,8 @@ impl JwksManager {
                 }
             }
         });
+
+        self.refresh_handle = Some(handle);
     }
 
     /// Verify a JWT token
@@ -138,5 +143,14 @@ impl JwksManager {
         }
 
         Ok(keys)
+    }
+}
+
+impl Drop for JwksManager {
+    fn drop(&mut self) {
+        if let Some(handle) = self.refresh_handle.take() {
+            handle.abort();
+            info!("JWKS background refresh aborted");
+        }
     }
 }

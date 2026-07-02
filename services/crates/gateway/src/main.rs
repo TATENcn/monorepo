@@ -17,7 +17,7 @@ async fn main() -> Result<(), GatewayError> {
 
     let config = GatewayConfig::load()?;
     let listener = TcpListener::bind(&config.addr).await?;
-    let jwks = JwksManager::new(config.jwks_url.clone(), Duration::from_secs(60)).await?;
+    let mut jwks = JwksManager::new(config.jwks_url.clone(), Duration::from_secs(60)).await?;
     jwks.start_background_refresh();
 
     // REVIEW: Make more choices, but in-memory now
