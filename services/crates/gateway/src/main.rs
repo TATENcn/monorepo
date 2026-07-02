@@ -95,7 +95,7 @@ async fn handle_connection(stream: TcpStream, service: Arc<ProxyService>) {
 #[derive(Debug, thiserror::Error)]
 pub enum GatewayError {
     #[error(transparent)]
-    Config(#[from] ::config::ConfigError),
+    Config(#[from] gateway::config::GatewayConfigError),
     #[error(transparent)]
     Io(#[from] io::Error),
     #[error("JWKS error: {0}")]
