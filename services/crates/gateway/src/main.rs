@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use gateway::{config::GatewayConfig, service::ProxyService};
+use gateway::{config::GatewayConfig, jwks::JwksManager, service::ProxyService};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder as AutoBuilder;
 use tokio::io;
@@ -14,8 +14,11 @@ async fn main() -> Result<(), GatewayError> {
 
     let config = GatewayConfig::load()?;
     let listener = TcpListener::bind(&config.addr).await?;
+    let jwks = JwksManager::new(config.jwks_url.clone(), Duration::from_secs(60)).await?;
+    jwks.start_background_refresh();
     let service = Arc::new(ProxyService::new(config.routes, Duration::from_secs(config.upstream_timeout_secs)));
-    info!(addr = ?&config.addr, "gateway listening");
+
+    info!(addr = %config.addr, "gateway listening");
 
     let mut handles = JoinSet::new();
 
@@ -56,4 +59,6 @@ pub enum GatewayError {
     Config(#[from] ::config::ConfigError),
     #[error(transparent)]
     Io(#[from] io::Error),
+    #[error("JWKS error: {0}")]
+    Jwks(#[from] gateway::jwks::JwksError),
 }
