@@ -108,6 +108,9 @@ pub async fn proxy(
         })?;
 
     let (mut parts, body) = res.into_parts();
+    // Strip `Content-Length` so hyper recalculates the transfer encoding from
+    // the boxed body's size hint (`Content-Length` or chunked, depending on
+    // whether the upstream body has a known size)
     parts.headers.remove(hyper::header::CONTENT_LENGTH);
 
     Ok(Response::from_parts(parts, body.boxed()))
