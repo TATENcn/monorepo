@@ -3,6 +3,7 @@ use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use hyper::{Request, Response, StatusCode, body::Incoming, header};
+use serde::Serialize;
 use tracing::error;
 
 use crate::{
@@ -11,6 +12,36 @@ use crate::{
     rate_limiter::{self, RateLimiter},
     router::{self, ProxyError},
 };
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case", tag = "status")]
+enum Health {
+    Ok,
+    Degraded { reason: &'static str },
+}
+
+impl Health {
+    fn from_jwks_ready(ready: bool) -> Self {
+        if ready { Self::Ok } else { Self::Degraded { reason: "jwks_unavailable" } }
+    }
+
+    fn status_code(&self) -> StatusCode {
+        match self {
+            Self::Ok => StatusCode::OK,
+            Self::Degraded { .. } => StatusCode::SERVICE_UNAVAILABLE,
+        }
+    }
+}
+
+// TODO: That's so ugly, i think we should do something instead of hard-encoding this
+impl Into<Bytes> for Health {
+    fn into(self) -> Bytes {
+        match self {
+            Health::Ok => Bytes::from("{\"status\":\"ok\"}"),
+            Health::Degraded { reason } => Bytes::from(format!("{{\"status\":\"degraded\",\"reason\":\"{}\"}}", reason)),
+        }
+    }
+}
 
 pub struct ProxyService {
     routes: Arc<Vec<RouteConfig>>,
@@ -55,6 +86,17 @@ impl hyper::service::Service<Request<Incoming>> for ProxyService {
 
         Box::pin(async move {
             let path = req.uri().path().to_string();
+
+            // REVIEW: Should we use a configuration field for this?
+            // Health check
+            if path == "/healthz" {
+                let health = Health::from_jwks_ready(jwks.is_ready());
+                return Ok(Response::builder()
+                    .status(health.status_code())
+                    .header("Content-Type", "application/json")
+                    .body(into_boxed_body(health.into()))
+                    .expect("building healthcheck response"));
+            }
 
             let matched = match router::match_route(&routes, &path) {
                 Some(m) => m,
