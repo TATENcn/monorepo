@@ -1,8 +1,8 @@
-use std::{future::Future, pin::Pin, time::Duration};
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
-use hyper::{Request, Response, body::Incoming};
+use hyper::{Request, Response, StatusCode, body::Incoming};
 use tracing::error;
 
 use crate::{
@@ -11,19 +11,24 @@ use crate::{
 };
 
 pub struct ProxyService {
-    routes: Vec<RouteConfig>,
+    routes: Arc<Vec<RouteConfig>>,
     timeout: Duration,
 }
 
 impl ProxyService {
     pub fn new(routes: Vec<RouteConfig>, timeout: Duration) -> Self {
-        Self { routes, timeout }
+        Self {
+            routes: Arc::new(routes),
+            timeout,
+        }
     }
 }
 
-async fn handle_request(req: Request<Incoming>, routes: &[RouteConfig], timeout: Duration) -> Result<Response<BoxBody<Bytes, hyper::Error>>, ProxyError> {
-    let path = req.uri().path().to_string();
-    let matched = router::match_route(routes, &path).ok_or(ProxyError::NoRoute)?;
+async fn handle_request(
+    req: Request<Incoming>,
+    matched: router::RouteMatch<'_>,
+    timeout: Duration,
+) -> Result<Response<BoxBody<Bytes, hyper::Error>>, ProxyError> {
     router::proxy(req, &matched, timeout).await
 }
 
@@ -41,7 +46,14 @@ impl hyper::service::Service<Request<Incoming>> for ProxyService {
         let timeout = self.timeout;
 
         Box::pin(async move {
-            match handle_request(req, &routes, timeout).await {
+            let path = req.uri().path().to_string();
+
+            let matched = match router::match_route(&routes, &path) {
+                Some(m) => m,
+                None => return Ok(error_response(StatusCode::NOT_FOUND, "no route matched")),
+            };
+
+            match handle_request(req, matched, timeout).await {
                 Ok(resp) => Ok(resp),
                 Err(e) => {
                     error!(?e, "proxy error");
