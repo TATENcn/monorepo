@@ -7,6 +7,7 @@ use std::{sync::LazyLock, time::Duration};
 
 pub mod config;
 pub mod jwks;
+pub mod router;
 
 pub static HTTP_CLIENT: LazyLock<Client<HttpConnector, BoxBody<Bytes, hyper::Error>>> = LazyLock::new(|| {
     Client::builder(TokioExecutor::new())
