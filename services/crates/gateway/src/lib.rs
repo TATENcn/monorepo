@@ -7,6 +7,7 @@ use std::{sync::LazyLock, time::Duration};
 
 pub mod config;
 pub mod jwks;
+pub mod rate_limiter;
 pub mod router;
 pub mod service;
 
