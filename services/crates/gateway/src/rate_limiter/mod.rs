@@ -1,3 +1,5 @@
+pub mod memory;
+
 /// Check whether a request is allowed
 pub trait RateLimiter: Send + Sync {
     fn check(&self, key: &str, per_sec: u64, burst: u64) -> bool;
