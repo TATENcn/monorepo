@@ -86,8 +86,8 @@ pub async fn proxy(
     parts.uri = upstream_uri.clone();
 
     // Replace Host header to match the upstream
-    if let Some(host) = parts.uri.host() {
-        match hyper::header::HeaderValue::from_str(host) {
+    if let Some(authority) = parts.uri.authority() {
+        match hyper::header::HeaderValue::from_str(authority.as_str()) {
             Ok(host_val) => {
                 parts.headers.insert(HOST, host_val);
             }
