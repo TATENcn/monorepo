@@ -1,6 +1,9 @@
-use std::{sync::Arc, time::Duration};
+use std::{future::Future, net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 
 use gateway::{config::GatewayConfig, jwks::JwksManager, rate_limiter::memory::InMemoryRateLimiter, service::ProxyService};
+use http_body_util::combinators::BoxBody;
+use hyper::service::Service;
+use hyper::{Request, Response, body::Incoming};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder as AutoBuilder;
 use tokio::io;
@@ -56,8 +59,35 @@ async fn main() -> Result<(), GatewayError> {
     Ok(())
 }
 
+/// Thin wrapper that injects the TCP peer address into request extensions before delegating to [`ProxyService`]
+struct ConnectionService {
+    inner: Arc<ProxyService>,
+    peer_addr: SocketAddr,
+}
+
+impl Service<Request<Incoming>> for ConnectionService {
+    type Response = Response<BoxBody<bytes::Bytes, hyper::Error>>;
+    type Error = hyper::http::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn call(&self, mut req: Request<Incoming>) -> Self::Future {
+        req.extensions_mut().insert(self.peer_addr);
+        self.inner.call(req)
+    }
+}
+
 async fn handle_connection(stream: TcpStream, service: Arc<ProxyService>) {
-    if let Err(err) = AutoBuilder::new(TokioExecutor::new()).serve_connection(TokioIo::new(stream), service).await {
+    let peer_addr = match stream.peer_addr() {
+        Ok(addr) => addr,
+        Err(e) => {
+            error!(?e, "failed to get peer address, dropping connection");
+            return;
+        }
+    };
+
+    let svc = ConnectionService { inner: service, peer_addr };
+
+    if let Err(err) = AutoBuilder::new(TokioExecutor::new()).serve_connection(TokioIo::new(stream), svc).await {
         error!(?err, "connection error")
     }
 }

@@ -1,4 +1,4 @@
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{future::Future, net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
@@ -104,7 +104,8 @@ impl hyper::service::Service<Request<Incoming>> for ProxyService {
             };
 
             // Rate limit check
-            if let Some(client_ip) = rate_limiter::client_ip(req.headers(), None) {
+            let peer_addr = req.extensions().get::<SocketAddr>().copied();
+            if let Some(client_ip) = rate_limiter::client_ip(req.headers(), peer_addr) {
                 let cfg = &matched.config.rate_limit;
                 let key = format!("{}:{}", matched.config.path, client_ip);
                 if !rate_limiter.check(&key, cfg.per_sec, cfg.burst) {
