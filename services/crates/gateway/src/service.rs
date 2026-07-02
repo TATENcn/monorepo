@@ -5,6 +5,7 @@ use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use hyper::{Request, Response, StatusCode, body::Incoming, header};
 use serde::Serialize;
 use tracing::error;
+use uuid::Uuid;
 
 use crate::{
     config::{AuthenticationLevel, RouteConfig},
@@ -129,6 +130,12 @@ impl hyper::service::Service<Request<Incoming>> for ProxyService {
     }
 }
 
+fn parse_user_id(sub: &str) -> Result<hyper::header::HeaderValue, Response<BoxBody<Bytes, hyper::Error>>> {
+    Uuid::parse_str(sub)
+        .map(|id| id.to_string().parse().expect("UUID string is always a valid header value"))
+        .map_err(|_| error_response(StatusCode::UNAUTHORIZED, "invalid token subject"))
+}
+
 fn error_response(status: StatusCode, msg: &str) -> Response<BoxBody<Bytes, hyper::Error>> {
     Response::builder()
         .status(status)
@@ -150,16 +157,17 @@ fn apply_auth(
         }
         AuthenticationLevel::Required => {
             let claims = verify_token(req.headers().get(header::AUTHORIZATION), jwks)?;
+            let user_id = parse_user_id(&claims.sub)?;
             req.headers_mut()
-                .insert(header::HeaderName::from_static("x-user-id"), claims.sub.parse().expect("sub is valid"));
+                .insert(header::HeaderName::from_static("x-user-id"), user_id);
             Ok(req)
         }
         AuthenticationLevel::Optional => {
             if let Some(val) = req.headers().get(header::AUTHORIZATION) {
                 let claims = verify_token(Some(val), jwks)?;
-
+                let user_id = parse_user_id(&claims.sub)?;
                 req.headers_mut()
-                    .insert(header::HeaderName::from_static("x-user-id"), claims.sub.parse().expect("sub is valid"));
+                    .insert(header::HeaderName::from_static("x-user-id"), user_id);
             }
             Ok(req)
         }
