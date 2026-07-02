@@ -5,6 +5,7 @@ use axum::{
     http::{StatusCode, header, request::Parts},
     response::{IntoResponse, Response},
 };
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::{router::AppState, token};
@@ -13,6 +14,58 @@ use crate::{router::AppState, token};
 #[derive(Debug, Clone)]
 pub struct Identity {
     pub user_id: Uuid,
+}
+
+/// Extracts `x-user-id` header injected by an upstream gateway
+///
+/// [`UserId<Identity>`] requires the header to be present and parseable missing or malformed values produce a 500
+///
+/// [`UserId<Option<Identity>>`] yields [`Option::None`] when the header is absent
+#[derive(Debug)]
+pub struct UserId<T>(pub T);
+
+impl<S> FromRequestParts<S> for UserId<Identity>
+where
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let user_id = extract_x_user_id(parts.headers.get("x-user-id"))?;
+        Ok(UserId(Identity { user_id }))
+    }
+}
+
+impl<S> FromRequestParts<S> for UserId<Option<Identity>>
+where
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        match parts.headers.get("x-user-id") {
+            Some(val) => {
+                let user_id = extract_x_user_id(Some(val))?;
+                Ok(UserId(Some(Identity { user_id })))
+            }
+            None => Ok(UserId(None)),
+        }
+    }
+}
+
+fn extract_x_user_id(header: Option<&axum::http::HeaderValue>) -> Result<Uuid, Response> {
+    let val = header.ok_or_else(|| {
+        warn!("x-user-id header missing from gateway");
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })?;
+    let s = val.to_str().map_err(|_| {
+        warn!("x-user-id header is not valid UTF-8");
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })?;
+    Uuid::parse_str(s).map_err(|_| {
+        warn!(?s, "x-user-id header is not a valid UUID");
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })
 }
 
 /// NOTES:
