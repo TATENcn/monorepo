@@ -7,7 +7,7 @@ use api_server_db::{
     },
     repositories::RepoError,
 };
-use auth::extractor::{Auth, Identity};
+use auth::extractor::{Identity, UserId};
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
@@ -68,7 +68,7 @@ async fn list_problems(
 
 async fn create_problem(
     State(state): State<Arc<ApiServerState>>,
-    Auth(identity): Auth<Identity>,
+    UserId(identity): UserId<Identity>,
     Json(req): Json<CreateProblemRequest>,
 ) -> Result<(StatusCode, Json<CreateProblemResponse>), ProblemApiError> {
     let res = state.problems_repo.create(req, identity.user_id).await?;
@@ -87,7 +87,7 @@ async fn get_problem(State(state): State<Arc<ApiServerState>>, Path(id): Path<Uu
 
 async fn update_problem(
     State(state): State<Arc<ApiServerState>>,
-    Auth(identity): Auth<Identity>,
+    UserId(identity): UserId<Identity>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateProblemRequest>,
 ) -> Result<StatusCode, ProblemApiError> {
@@ -95,14 +95,18 @@ async fn update_problem(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn delete_problem(State(state): State<Arc<ApiServerState>>, Auth(identity): Auth<Identity>, Path(id): Path<Uuid>) -> Result<StatusCode, ProblemApiError> {
+async fn delete_problem(
+    State(state): State<Arc<ApiServerState>>,
+    UserId(identity): UserId<Identity>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, ProblemApiError> {
     state.problems_repo.delete(id, identity.user_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn get_test_cases(
     State(state): State<Arc<ApiServerState>>,
-    Auth(identity): Auth<Identity>,
+    UserId(identity): UserId<Identity>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<TestCaseSuccessfulResponse>>, ProblemApiError> {
     let res = state.test_cases_repo.get_by_problem_id(id, identity.user_id).await?;
@@ -111,7 +115,7 @@ async fn get_test_cases(
 
 async fn replace_test_cases(
     State(state): State<Arc<ApiServerState>>,
-    Auth(identity): Auth<Identity>,
+    UserId(identity): UserId<Identity>,
     Path(id): Path<Uuid>,
     Json(req): Json<ReplaceTestCasesRequest>,
 ) -> Result<StatusCode, ProblemApiError> {
