@@ -16,7 +16,7 @@ async fn main() -> Result<(), GatewayError> {
     let listener = TcpListener::bind(&config.addr).await?;
     let jwks = JwksManager::new(config.jwks_url.clone(), Duration::from_secs(60)).await?;
     jwks.start_background_refresh();
-    let service = Arc::new(ProxyService::new(config.routes, Duration::from_secs(config.upstream_timeout_secs)));
+    let service = Arc::new(ProxyService::new(config.routes, Duration::from_secs(config.upstream_timeout_secs), jwks));
 
     info!(addr = %config.addr, "gateway listening");
 
